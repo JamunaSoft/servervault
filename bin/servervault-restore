@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+CONFIG_FILE="${SERVERVAULT_CONFIG:-/etc/servervault/servervault.env}"
+[[ -r "$CONFIG_FILE" ]] || { echo "Missing config: $CONFIG_FILE" >&2; exit 1; }
+# shellcheck disable=SC1090
+source "$CONFIG_FILE"
+export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE
+[[ -n "${RESTIC_SFTP_COMMAND:-}" ]] && export RESTIC_SFTP_COMMAND
+mkdir -p "$RESTORE_ROOT"
+
+cat <<MENU
+1) List snapshots
+2) Restore latest snapshot to a safe directory
+3) Restore a specific snapshot to a safe directory
+4) Extract latest PostgreSQL dump
+MENU
+read -r -p "Choose: " choice
+case "$choice" in
+  1) restic snapshots --tag=servervault ;;
+  2)
+    target="$RESTORE_ROOT/latest-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$target"
+    restic restore latest --tag=servervault --target="$target"
+    echo "Restored to $target"
+    ;;
+  3)
+    restic snapshots --tag=servervault
+    read -r -p "Snapshot ID: " snapshot
+    target="$RESTORE_ROOT/${snapshot}-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$target"
+    restic restore "$snapshot" --target="$target"
+    echo "Restored to $target"
+    ;;
+  4)
+    target="$RESTORE_ROOT/database-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$target"
+    restic restore latest --tag=servervault --include='*.dump.zst' --target="$target"
+    archive="$(find "$target" -type f -name '*.dump.zst' | head -n1)"
+    [[ -n "$archive" ]] || { echo "No dump found" >&2; exit 1; }
+    output="$target/${POSTGRES_DATABASE}.dump"
+    zstd -dc "$archive" > "$output"
+    pg_restore --list "$output" >/dev/null
+    echo "Verified dump extracted to $output"
+    ;;
+  *) echo "Invalid choice" >&2; exit 1 ;;
+esac

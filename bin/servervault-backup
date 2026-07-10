@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+
+CONFIG_FILE="${SERVERVAULT_CONFIG:-/etc/servervault/servervault.env}"
+[[ -r "$CONFIG_FILE" ]] || { echo "Missing config: $CONFIG_FILE" >&2; exit 1; }
+# shellcheck disable=SC1090
+source "$CONFIG_FILE"
+
+export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE
+[[ -n "${RESTIC_SFTP_COMMAND:-}" ]] && export RESTIC_SFTP_COMMAND
+
+LOCK_FILE="/run/lock/servervault-backup.lock"
+TIMESTAMP="$(date -u +%Y-%m-%d_%H-%M-%S)"
+DB_DIR="${BACKUP_ROOT}/postgresql"
+DB_DUMP="${DB_DIR}/${POSTGRES_DATABASE}_${TIMESTAMP}.dump.zst"
+
+mkdir -p "$DB_DIR"
+exec 9>"$LOCK_FILE"
+flock -n 9 || { echo "Another backup is already running" >&2; exit 1; }
+
+cleanup() { rm -f "$DB_DUMP"; }
+trap cleanup EXIT
+
+command -v restic >/dev/null
+command -v pg_dump >/dev/null
+command -v pg_restore >/dev/null
+command -v zstd >/dev/null
+
+sudo -u "$POSTGRES_USER" psql -d "$POSTGRES_DATABASE" -Atc 'SELECT 1' | grep -qx 1
+
+sudo -u "$POSTGRES_USER" pg_dump \
+  --format=custom \
+  --compress=0 \
+  --no-owner \
+  --no-privileges \
+  "$POSTGRES_DATABASE" \
+  | zstd -T0 -"${ZSTD_LEVEL}" -o "$DB_DUMP"
+
+zstd -t "$DB_DUMP"
+zstd -dc "$DB_DUMP" | pg_restore --list - >/dev/null
+
+read -r -a PATHS <<< "$BACKUP_PATHS"
+restic backup \
+  "${PATHS[@]}" \
+  "$DB_DUMP" \
+  --exclude-file="$EXCLUDES_FILE" \
+  --tag=servervault \
+  --tag="$SERVER_TAG" \
+  --host="$SERVER_TAG"
+
+restic forget \
+  --host="$SERVER_TAG" \
+  --tag=servervault \
+  --keep-daily "$KEEP_DAILY" \
+  --keep-weekly "$KEEP_WEEKLY" \
+  --keep-monthly "$KEEP_MONTHLY" \
+  --prune
+
+restic check
+restic snapshots --host="$SERVER_TAG" --tag=servervault --latest 5

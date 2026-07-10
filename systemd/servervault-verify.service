@@ -1,0 +1,13 @@
+[Unit]
+Description=ServerVault full repository verification
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/servervault-verify
+Nice=15
+IOSchedulingClass=idle
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/run/lock

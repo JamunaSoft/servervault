@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+CONFIG_FILE="${SERVERVAULT_CONFIG:-/etc/servervault/servervault.env}"
+[[ -r "$CONFIG_FILE" ]] || { echo "Missing config: $CONFIG_FILE" >&2; exit 1; }
+# shellcheck disable=SC1090
+source "$CONFIG_FILE"
+export RESTIC_REPOSITORY RESTIC_PASSWORD_FILE
+[[ -n "${RESTIC_SFTP_COMMAND:-}" ]] && export RESTIC_SFTP_COMMAND
+exec 9>/run/lock/servervault-verify.lock
+flock -n 9 || { echo "Verification already running" >&2; exit 1; }
+restic unlock
+restic check --read-data

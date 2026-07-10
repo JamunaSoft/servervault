@@ -1,0 +1,10 @@
+[Unit]
+Description=Run ServerVault verification weekly
+
+[Timer]
+OnCalendar=Sun *-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

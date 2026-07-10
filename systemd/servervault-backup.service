@@ -1,0 +1,14 @@
+[Unit]
+Description=ServerVault backup
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/servervault-backup
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/backups/servervault /run/lock

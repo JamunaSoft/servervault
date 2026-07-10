@@ -1,0 +1,8 @@
+*.log
+*.dump
+*.dump.zst
+.env
+servervault.env
+*-password
+*.key
+*.pem
