@@ -183,6 +183,91 @@ func TestCheckBackupPaths(t *testing.T) {
 	}
 }
 
+func TestCheckRestoreStagingOverlap(t *testing.T) {
+	t.Run("not configured", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.Restore.StagingRoot = ""
+
+		check := checkRestoreStagingOverlap(Options{Config: cfg})
+		if check.Status != StatusSkip {
+			t.Errorf("status = %v, want StatusSkip (detail: %s)", check.Status, check.Detail)
+		}
+	})
+
+	t.Run("staging root does not exist yet", func(t *testing.T) {
+		dir := t.TempDir()
+		cfg := baseConfig()
+		cfg.Restore.StagingRoot = filepath.Join(dir, "not-created-yet")
+		cfg.Backup.Paths = []string{dir}
+
+		check := checkRestoreStagingOverlap(Options{Config: cfg})
+		if check.Status != StatusSkip {
+			t.Errorf("status = %v, want StatusSkip (detail: %s)", check.Status, check.Detail)
+		}
+	})
+
+	t.Run("no overlap between separate real directories", func(t *testing.T) {
+		root := t.TempDir()
+		backupPath := filepath.Join(root, "www")
+		staging := filepath.Join(root, "restore")
+		mustMkdir(t, backupPath)
+		mustMkdir(t, staging)
+
+		cfg := baseConfig()
+		cfg.Backup.Paths = []string{backupPath}
+		cfg.Restore.StagingRoot = staging
+
+		check := checkRestoreStagingOverlap(Options{Config: cfg})
+		if check.Status != StatusOK {
+			t.Errorf("status = %v, want StatusOK (detail: %s)", check.Status, check.Detail)
+		}
+	})
+
+	t.Run("symlink makes staging root physically overlap a backup path", func(t *testing.T) {
+		root := t.TempDir()
+		realBackupDir := filepath.Join(root, "actual-www")
+		mustMkdir(t, realBackupDir)
+
+		// staging root LOOKS separate as a string, but is a symlink
+		// pointing straight into the real backup directory.
+		stagingSymlink := filepath.Join(root, "staging-symlink")
+		if err := os.Symlink(realBackupDir, stagingSymlink); err != nil {
+			t.Skipf("symlinks not supported in this environment: %v", err)
+		}
+
+		cfg := baseConfig()
+		cfg.Backup.Paths = []string{realBackupDir}
+		cfg.Restore.StagingRoot = stagingSymlink
+
+		check := checkRestoreStagingOverlap(Options{Config: cfg})
+		if check.Status != StatusFail {
+			t.Errorf("status = %v, want StatusFail for a symlink-induced overlap (detail: %s)", check.Status, check.Detail)
+		}
+	})
+
+	t.Run("unresolvable backup path does not block a clean staging root", func(t *testing.T) {
+		root := t.TempDir()
+		staging := filepath.Join(root, "restore")
+		mustMkdir(t, staging)
+
+		cfg := baseConfig()
+		cfg.Backup.Paths = []string{filepath.Join(root, "does-not-exist")}
+		cfg.Restore.StagingRoot = staging
+
+		check := checkRestoreStagingOverlap(Options{Config: cfg})
+		if check.Status != StatusOK {
+			t.Errorf("status = %v, want StatusOK when the unresolved backup path just doesn't exist yet (detail: %s)", check.Status, check.Detail)
+		}
+	})
+}
+
+func mustMkdir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0o755); err != nil {
+		t.Fatalf("mustMkdir(%q): %v", path, err)
+	}
+}
+
 func TestCheckDiskSpace(t *testing.T) {
 	existing := t.TempDir()
 

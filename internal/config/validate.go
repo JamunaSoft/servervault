@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path"
 	"strings"
 )
 
@@ -153,21 +154,24 @@ func validatePostgres(p PostgresConfig) ValidationErrors {
 }
 
 // validateRestore checks the restore destinations rules from
-// docs/security-model.md: restores must never be configured to land on a
-// live backup path or in the live database.
+// docs/security-model.md: restores must never be configured to land on,
+// inside, or around a live backup path, or in the live database.
 func validateRestore(r RestoreConfig, pg PostgresConfig, b BackupConfig) ValidationErrors {
 	var errs ValidationErrors
 
-	if r.StagingRoot == "" {
+	switch {
+	case r.StagingRoot == "":
 		errs = append(errs, ValidationError{"restore.staging_root", "must not be empty"})
-	} else if !strings.HasPrefix(r.StagingRoot, "/") || r.StagingRoot == "/" {
-		errs = append(errs, ValidationError{"restore.staging_root", "must be an absolute path other than /"})
-	} else {
+	case !strings.HasPrefix(r.StagingRoot, "/"):
+		errs = append(errs, ValidationError{"restore.staging_root", "must be an absolute path"})
+	case path.Clean(r.StagingRoot) == "/":
+		errs = append(errs, ValidationError{"restore.staging_root", "must not be the root filesystem (/)"})
+	default:
 		for _, bp := range b.Paths {
-			if r.StagingRoot == bp {
+			if PathsOverlap(r.StagingRoot, bp) {
 				errs = append(errs, ValidationError{
 					"restore.staging_root",
-					"must not equal a live backup.paths entry (" + bp + ") — restores must land in staging, not a live path",
+					"overlaps a live backup.paths entry (" + bp + ") — restores must land in staging, never inside or containing a live path",
 				})
 			}
 		}
@@ -183,4 +187,35 @@ func validateRestore(r RestoreConfig, pg PostgresConfig, b BackupConfig) Validat
 	}
 
 	return errs
+}
+
+// PathsOverlap reports whether cleaned absolute paths a and b are equal, or
+// one is nested inside the other, using path-segment-aware comparison —
+// so a deceptive prefix like /var/www-old is never mistaken for being
+// inside /var/www, and a trailing slash never changes the answer.
+//
+// This is pure string comparison: no filesystem access, no symlink
+// resolution, matching Validate's filesystem-free contract. See
+// internal/doctor for the realpath-aware overlap check that runs against
+// the actual deployed environment, where a symlink could make two
+// logically-different configured paths physically the same.
+func PathsOverlap(a, b string) bool {
+	a = path.Clean(a)
+	b = path.Clean(b)
+	if a == b {
+		return true
+	}
+	return isWithin(a, b) || isWithin(b, a)
+}
+
+// isWithin reports whether child is nested inside parent. parent == "/" is
+// handled as a special case: naively checking strings.HasPrefix(child,
+// parent+"/") would build the separator "//" for a root parent, which no
+// cleaned path ever contains, so it would wrongly report that nothing is
+// ever nested inside "/".
+func isWithin(child, parent string) bool {
+	if parent == "/" {
+		return true
+	}
+	return strings.HasPrefix(child, parent+"/")
 }

@@ -47,6 +47,15 @@ Environment variables mirror the YAML structure with the
 `SERVERVAULT_` prefix and underscores for nesting, e.g.
 `restic.repository` becomes `SERVERVAULT_RESTIC_REPOSITORY`.
 
+List-valued variables are delimited differently depending on whether their
+values can contain spaces:
+
+- `SERVERVAULT_BACKUP_PATHS` (filesystem paths) splits on **commas only**,
+  so a path containing a space (e.g. `/var/www/My Site`) is never split in
+  two. Whitespace around each comma-separated entry is trimmed.
+- `SERVERVAULT_RESTIC_TAGS` (Restic tags) splits on commas **or**
+  whitespace, since tags are simple identifiers.
+
 Copy [`configs/servervault.example.yaml`](../configs/servervault.example.yaml)
 and [`configs/logging.example.yaml`](../configs/logging.example.yaml),
 strip the `.example` suffix, and edit — again, never commit the edited

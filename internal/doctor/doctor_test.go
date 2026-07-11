@@ -61,7 +61,7 @@ func TestRun_UsesDefaultCollaboratorsWhenNil(t *testing.T) {
 	for _, c := range report.Checks {
 		names[c.Name] = true
 	}
-	for _, want := range []string{"OS/architecture", "required commands", "config validation", "secret permissions", "backup paths", "local disk space", "timezone"} {
+	for _, want := range []string{"OS/architecture", "required commands", "config validation", "secret permissions", "backup paths", "restore staging overlap (realpath)", "local disk space", "timezone"} {
 		if !names[want] {
 			t.Errorf("Run() report missing expected check %q", want)
 		}

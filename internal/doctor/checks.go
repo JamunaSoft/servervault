@@ -3,6 +3,7 @@ package doctor
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
@@ -109,6 +110,70 @@ func checkBackupPaths(opts Options) Check {
 	}
 
 	return Check{Name: name, Status: StatusOK, Detail: fmt.Sprintf("%d path(s) present", len(paths))}
+}
+
+// checkRestoreStagingOverlap re-runs config.PathsOverlap's comparison, but
+// against symlink-resolved real paths instead of the raw configured
+// strings. This catches the case config.Validate structurally cannot: a
+// symlink making two logically-distinct configured paths physically the
+// same location on disk (e.g. restore.staging_root is a symlink into a
+// directory a backup.paths entry also resolves to).
+//
+// It only runs "where practical" — a configured path that doesn't exist
+// yet can't be resolved, so this check reports StatusSkip rather than a
+// false pass or fail in that case; config.Validate and checkBackupPaths
+// already cover the string-level and existence checks respectively.
+func checkRestoreStagingOverlap(opts Options) Check {
+	const name = "restore staging overlap (realpath)"
+
+	staging := opts.Config.Restore.StagingRoot
+	if staging == "" {
+		return Check{Name: name, Status: StatusSkip, Detail: "restore.staging_root is not configured"}
+	}
+
+	stagingReal, err := realPath(staging)
+	if err != nil {
+		return Check{Name: name, Status: StatusSkip, Detail: fmt.Sprintf("cannot resolve %s yet: %v", staging, err)}
+	}
+
+	var overlaps []string
+	var unresolved int
+	for _, bp := range opts.Config.Backup.Paths {
+		bpReal, err := realPath(bp)
+		if err != nil {
+			// Doesn't exist yet or isn't resolvable — checkBackupPaths
+			// already reports that; nothing new to say here.
+			unresolved++
+			continue
+		}
+		if config.PathsOverlap(stagingReal, bpReal) {
+			overlaps = append(overlaps, bp+" -> "+bpReal)
+		}
+	}
+
+	if len(overlaps) > 0 {
+		return Check{
+			Name:   name,
+			Status: StatusFail,
+			Detail: fmt.Sprintf("%s resolves to %s, which overlaps: %s", staging, stagingReal, strings.Join(overlaps, "; ")),
+		}
+	}
+
+	detail := fmt.Sprintf("%s resolves to %s, no overlap with resolved backup paths", staging, stagingReal)
+	if unresolved > 0 {
+		detail += fmt.Sprintf(" (%d backup path(s) could not be resolved yet)", unresolved)
+	}
+	return Check{Name: name, Status: StatusOK, Detail: detail}
+}
+
+// realPath resolves p to an absolute, symlink-free path. It requires p to
+// exist.
+func realPath(p string) (string, error) {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(abs)
 }
 
 const minFreeBytes = 1 << 30 // 1 GiB

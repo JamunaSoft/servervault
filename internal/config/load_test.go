@@ -93,6 +93,83 @@ retention:
 	}
 }
 
+func TestLoad_EnvBackupPathsWithSpaces(t *testing.T) {
+	// A path containing a space must survive as a single entry — only a
+	// comma separates SERVERVAULT_BACKUP_PATHS entries.
+	t.Setenv("SERVERVAULT_BACKUP_PATHS", "/var/www/My Site,/etc/nginx")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load(\"\"): unexpected error: %v", err)
+	}
+
+	want := []string{"/var/www/My Site", "/etc/nginx"}
+	if len(cfg.Backup.Paths) != len(want) || cfg.Backup.Paths[0] != want[0] || cfg.Backup.Paths[1] != want[1] {
+		t.Errorf("Backup.Paths = %v, want %v", cfg.Backup.Paths, want)
+	}
+}
+
+func TestSplitPaths(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{name: "empty", in: "", want: nil},
+		{name: "whitespace only", in: "   ", want: nil},
+		{name: "single path", in: "/var/www", want: []string{"/var/www"}},
+		{name: "comma separated", in: "/var/www,/etc/nginx", want: []string{"/var/www", "/etc/nginx"}},
+		{name: "comma with surrounding spaces", in: "/var/www, /etc/nginx , /opt/app", want: []string{"/var/www", "/etc/nginx", "/opt/app"}},
+		{name: "path containing a space is not split", in: "/var/www/My Site,/etc/nginx", want: []string{"/var/www/My Site", "/etc/nginx"}},
+		{name: "trailing comma dropped", in: "/var/www,/etc/nginx,", want: []string{"/var/www", "/etc/nginx"}},
+		{name: "leading comma dropped", in: ",/var/www", want: []string{"/var/www"}},
+		{name: "multiple spaces preserved inside a path", in: "/mnt/Shared  Drive/data", want: []string{"/mnt/Shared  Drive/data"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitPaths(tt.in)
+			if !equalStrings(got, tt.want) {
+				t.Errorf("splitPaths(%q) = %#v, want %#v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSplitTags(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{name: "empty", in: "", want: nil},
+		{name: "comma separated", in: "servervault,production", want: []string{"servervault", "production"}},
+		{name: "space separated", in: "servervault production", want: []string{"servervault", "production"}},
+		{name: "mixed comma and space", in: "servervault, production hetzner", want: []string{"servervault", "production", "hetzner"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := splitTags(tt.in)
+			if !equalStrings(got, tt.want) {
+				t.Errorf("splitTags(%q) = %#v, want %#v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestLoad_EnvInvalidInt(t *testing.T) {
 	t.Setenv("SERVERVAULT_RETENTION_KEEP_DAILY", "not-a-number")
 

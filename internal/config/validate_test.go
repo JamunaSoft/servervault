@@ -116,6 +116,30 @@ func TestValidate(t *testing.T) {
 			wantField: "restore.staging_root",
 		},
 		{
+			name: "staging root nested inside a live backup path",
+			mutate: func(c *Config) {
+				c.Backup.Paths = []string{"/var/www"}
+				c.Restore.StagingRoot = "/var/www/restore"
+			},
+			wantField: "restore.staging_root",
+		},
+		{
+			name: "live backup path nested inside staging root",
+			mutate: func(c *Config) {
+				c.Backup.Paths = []string{"/var/restore/servervault/app"}
+				c.Restore.StagingRoot = "/var/restore/servervault"
+			},
+			wantField: "restore.staging_root",
+		},
+		{
+			name: "staging root with trailing slash still overlaps",
+			mutate: func(c *Config) {
+				c.Backup.Paths = []string{"/var/www"}
+				c.Restore.StagingRoot = "/var/www/"
+			},
+			wantField: "restore.staging_root",
+		},
+		{
 			name:      "temp database prefix equals live database",
 			mutate:    func(c *Config) { c.Restore.TempDatabasePrefix = c.Postgres.Database },
 			wantField: "restore.temp_database_prefix",
@@ -133,6 +157,56 @@ func TestValidate(t *testing.T) {
 			}
 			if !containsField(errs, tt.wantField) {
 				t.Errorf("Validate() = %v, want an error for field %q", errs, tt.wantField)
+			}
+		})
+	}
+}
+
+func TestValidate_DeceptivePrefixIsNotFlagged(t *testing.T) {
+	// /var/www-old is not nested inside /var/www even though it shares a
+	// string prefix — a raw strings.HasPrefix check would wrongly flag
+	// this as an overlap.
+	cfg := validConfig()
+	cfg.Backup.Paths = []string{"/var/www"}
+	cfg.Restore.StagingRoot = "/var/www-old"
+
+	if errs := Validate(cfg); containsField(errs, "restore.staging_root") {
+		t.Errorf("Validate() flagged a deceptive-prefix path as overlapping: %v", errs)
+	}
+}
+
+func TestPathsOverlap(t *testing.T) {
+	tests := []struct {
+		name string
+		a    string
+		b    string
+		want bool
+	}{
+		{name: "equal", a: "/var/www", b: "/var/www", want: true},
+		{name: "a nested inside b", a: "/var/www/restore", b: "/var/www", want: true},
+		{name: "b nested inside a", a: "/var/www", b: "/var/www/restore", want: true},
+		{name: "nested one level deeper", a: "/var/restore", b: "/var/restore/app", want: true},
+		{name: "sibling paths", a: "/var/www", b: "/var/nginx", want: false},
+		{name: "sibling paths under restore", a: "/var/restore/app", b: "/var/restore/other", want: false},
+		{name: "deceptive prefix, a shorter", a: "/var/www", b: "/var/www-old", want: false},
+		{name: "deceptive prefix, b shorter", a: "/var/www-old", b: "/var/www", want: false},
+		{name: "trailing slash on a, otherwise equal", a: "/var/www/", b: "/var/www", want: true},
+		{name: "trailing slash on b, otherwise equal", a: "/var/www", b: "/var/www/", want: true},
+		{name: "trailing slash with nesting", a: "/var/www/restore/", b: "/var/www/", want: true},
+		{name: "unclean path with dot segments", a: "/var/www/../www2", b: "/var/www2", want: true},
+		{name: "unclean path with current-dir segment", a: "/var/www/./sub", b: "/var/www/sub", want: true},
+		{name: "root vs anything", a: "/", b: "/var/www", want: true},
+		{name: "completely unrelated", a: "/etc/nginx", b: "/opt/app", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := PathsOverlap(tt.a, tt.b); got != tt.want {
+				t.Errorf("PathsOverlap(%q, %q) = %v, want %v", tt.a, tt.b, got, tt.want)
+			}
+			// Overlap must be symmetric.
+			if got := PathsOverlap(tt.b, tt.a); got != tt.want {
+				t.Errorf("PathsOverlap(%q, %q) [swapped] = %v, want %v", tt.b, tt.a, got, tt.want)
 			}
 		})
 	}

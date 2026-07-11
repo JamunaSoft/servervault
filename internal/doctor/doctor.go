@@ -101,6 +101,7 @@ func Run(ctx context.Context, opts Options) Report {
 			checkConfigValidation(opts),
 			checkSecretPermissions(opts),
 			checkBackupPaths(opts),
+			checkRestoreStagingOverlap(opts),
 			checkDiskSpace(opts),
 			checkTimezone(),
 

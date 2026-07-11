@@ -66,7 +66,7 @@ func applyEnv(cfg *Config) error {
 		cfg.Restic.SFTPCommand = v
 	}
 	if v, ok := os.LookupEnv("SERVERVAULT_RESTIC_TAGS"); ok {
-		cfg.Restic.Tags = splitList(v)
+		cfg.Restic.Tags = splitTags(v)
 	}
 
 	if v, ok := os.LookupEnv("SERVERVAULT_POSTGRES_ENABLED"); ok {
@@ -101,7 +101,7 @@ func applyEnv(cfg *Config) error {
 	}
 
 	if v, ok := os.LookupEnv("SERVERVAULT_BACKUP_PATHS"); ok {
-		cfg.Backup.Paths = splitList(v)
+		cfg.Backup.Paths = splitPaths(v)
 	}
 	if v, ok := os.LookupEnv("SERVERVAULT_BACKUP_EXCLUDE_FILE"); ok {
 		cfg.Backup.ExcludeFile = v
@@ -157,12 +157,35 @@ func applyEnv(cfg *Config) error {
 	return nil
 }
 
-// splitList parses a comma- or space-separated environment variable value
-// into a slice, dropping empty elements.
-func splitList(v string) []string {
+// splitTags parses a comma- or whitespace-separated environment variable
+// value into a slice of Restic tags, dropping empty elements. Tags are
+// simple identifiers (see configs/servervault.example.yaml), so splitting
+// on whitespace in addition to commas is safe and matches the shell
+// implementation's word-splitting behavior for space-separated lists.
+func splitTags(v string) []string {
 	fields := strings.FieldsFunc(v, func(r rune) bool {
 		return r == ',' || r == ' '
 	})
+	out := make([]string, 0, len(fields))
+	for _, f := range fields {
+		if f = strings.TrimSpace(f); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// splitPaths parses a comma-separated environment variable value into a
+// slice of filesystem paths. Unlike splitTags, it never splits on
+// whitespace: a path may legitimately contain a space (e.g.
+// "/var/www/My Site"), so only a literal comma separates entries.
+// Leading/trailing whitespace around each entry is trimmed; interior
+// whitespace is preserved untouched.
+func splitPaths(v string) []string {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	fields := strings.Split(v, ",")
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
 		if f = strings.TrimSpace(f); f != "" {
