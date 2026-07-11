@@ -38,7 +38,10 @@ sudo -u "$POSTGRES_USER" pg_dump \
   | zstd -T0 -"${ZSTD_LEVEL}" -o "$DB_DUMP"
 
 zstd -t "$DB_DUMP"
-zstd -dc "$DB_DUMP" | pg_restore --list - >/dev/null
+TMP_DUMP="${DB_DUMP%.zst}"
+zstd -dc "$DB_DUMP" > "$TMP_DUMP"
+pg_restore --list "$TMP_DUMP" >/dev/null
+rm -f "$TMP_DUMP"
 
 read -r -a PATHS <<< "$BACKUP_PATHS"
 restic backup \
