@@ -1,0 +1,96 @@
+name: Integration
+
+# Real restic / PostgreSQL integration tests (see docs/testing.md). These
+# run alongside the fast unit suite in go.yml, against temporary local
+# repositories and disposable databases only -- never production
+# credentials or state.
+
+on:
+  push:
+    branches:
+      - main
+      - go-rewrite
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/integration.yml"
+  pull_request:
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  restic-integration:
+    name: Restic integration (required)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Install restic
+        run: sudo apt-get update && sudo apt-get install -y restic
+
+      - name: Verify restic is usable
+        # A broken install must fail this job, not silently show up as
+        # skipped tests later -- see docs/testing.md's "CI jobs that
+        # explicitly install prerequisites should fail, not skip".
+        run: restic version
+
+      - name: Run integration tests (PostgreSQL not installed -- those tests skip)
+        run: go test -tags=integration -race ./...
+
+  postgres-integration:
+    name: PostgreSQL integration (non-blocking)
+    runs-on: ubuntu-latest
+    # Non-blocking while this job's setup proves stable in CI, per
+    # docs/testing.md. Promote to required once it's been reliable for a
+    # while.
+    continue-on-error: true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Install PostgreSQL
+        run: sudo apt-get update && sudo apt-get install -y postgresql postgresql-client
+
+      - name: Create a disposable, low-privilege test role
+        # A dedicated OS user + PostgreSQL role, not the postgres
+        # superuser: least privilege for CI, and it exercises peer auth
+        # (OS username -> matching DB role) the same way production does.
+        run: |
+          set -euo pipefail
+          sudo useradd --system --no-create-home --shell /usr/sbin/nologin servervault_test
+          sudo -u postgres createuser --createdb servervault_test
+
+      - name: Verify PostgreSQL connectivity as the test role
+        # Same reasoning as the restic verification step above: fail the
+        # job here if setup is broken, don't let it surface as a skip.
+        run: sudo -u servervault_test psql -Atc 'SELECT 1' postgres
+
+      - name: Run PostgreSQL-backed integration tests
+        env:
+          SERVERVAULT_TEST_POSTGRES_USER: servervault_test
+        run: go test -tags=integration -race ./internal/postgres/... ./internal/backup/...

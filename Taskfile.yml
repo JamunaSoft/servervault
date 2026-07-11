@@ -3,6 +3,7 @@ version: "3"
 vars:
   BINARY: servervault
   CMD_DIR: ./cmd/servervault
+  VERSION_PKG: github.com/JamunaSoft/servervault/internal/version
   VERSION:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   COMMIT:
@@ -45,12 +46,28 @@ tasks:
     cmds:
       - go test -race -cover ./...
 
+  test:integration:
+    desc: >-
+      Real restic/pg_dump/pg_restore/psql against temporary local
+      repositories/databases. Skips cleanly per-test when a prerequisite
+      is missing locally; see docs/testing.md.
+    cmds:
+      - go test -tags=integration -race ./...
+
+  test:resticlock:
+    desc: >-
+      Opt-in, best-effort probe of restic's own lock-conflict behavior
+      against a real repository. Not part of test:integration;
+      version-sensitive. See docs/testing.md.
+    cmds:
+      - go test -tags=integration,resticlock -race ./internal/restic/...
+
   build:
     desc: Build the servervault binary with version metadata.
     cmds:
       - >-
         go build -ldflags
-        "-s -w -X main.Version={{.VERSION}} -X main.Commit={{.COMMIT}} -X main.Date={{.DATE}}"
+        "-s -w -X {{.VERSION_PKG}}.Version={{.VERSION}} -X {{.VERSION_PKG}}.Commit={{.COMMIT}} -X {{.VERSION_PKG}}.Date={{.DATE}}"
         -o {{.BINARY}} {{.CMD_DIR}}
 
   clean:

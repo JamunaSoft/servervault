@@ -37,6 +37,20 @@ vet:
 test:
 	$(GO) test -race -cover ./...
 
+# Real restic/pg_dump/pg_restore/psql against temporary local
+# repositories/databases. Skips cleanly per-test when a prerequisite is
+# missing locally; see docs/testing.md.
+.PHONY: test-integration
+test-integration:
+	$(GO) test -tags=integration -race ./...
+
+# Opt-in, best-effort probe of restic's own lock-conflict behavior against
+# a real repository. Not part of `test-integration`; version-sensitive.
+# See docs/testing.md and internal/restic/lockprobe_test.go.
+.PHONY: test-resticlock
+test-resticlock:
+	$(GO) test -tags=integration,resticlock -race ./internal/restic/...
+
 .PHONY: build
 build:
 	$(GO) build -ldflags "$(LDFLAGS)" -o $(BINARY) $(CMD_DIR)

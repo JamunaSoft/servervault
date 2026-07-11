@@ -151,3 +151,79 @@ between sessions.
   installed in the dev/CI sandbox) — argv/logic correctness is covered
   via fakes; consider a `//go:build integration` suite skip-guarded on
   `exec.LookPath("restic")` if/when a CI environment has it.
+
+## 2026-07-12 — v0.3.0 Phase A integration test milestone
+
+- Branch: `go-rewrite`
+- What changed: added a real-binary integration test suite for Phase A
+  (`internal/{restic,postgres,backup}/integration_test.go`,
+  `internal/backup/concurrency_test.go`), a shared
+  `internal/testsupport` helper package, deterministic exit-code-11
+  (`ExitLockFailed`) unit tests, an opt-in `resticlock`-tagged real
+  lock-conflict probe, `make test-integration`/`test-resticlock`
+  targets, a `docs/testing.md` rewrite covering all of it, and two new
+  CI workflows (`integration.yml`: restic required + postgres
+  non-blocking; `restic-lock-probe.yml`: manual/scheduled only). Design
+  was reviewed and approved (with adjustments) before implementation;
+  this entry records what changed and the reasoning, not the full
+  design (see that turn for the complete rationale).
+- Decisions / rationale:
+  - **Tried to install a real `restic` binary into scratchpad to verify
+    its lock-retry behavior empirically before designing the probe test
+    — blocked by the auto-mode classifier as an unauthorized
+    download+execute.** Did not retry or work around it; designed the
+    probe as best-effort/skip-on-uncertainty instead, and documented the
+    uncertainty rather than guessing silently. This governed the final
+    adjustment list (deterministic classification as a normal unit test;
+    the real probe made opt-in and non-required).
+  - **`internal/testsupport` (new shared package, `integration`-tagged)**:
+    initially planned to duplicate "spin up a temp restic repo" / "spin
+    up a temp postgres db" logic per package (three call sites), but the
+    duplication included a safety-critical guard (never drop a database
+    without the `servervault_test_` prefix) — three independent copies
+    of a safety guard is a real risk of drift, not just style. One
+    shared package with one guard implementation was the right call
+    here, reversing the "no shared testutil" instinct from the original
+    design sketch once the actual amount of safety-relevant logic became
+    clear.
+  - **`lockprobe_test.go` tagged `integration && resticlock`** (not just
+    `resticlock` alone) specifically so it can reuse
+    `testsupport.NewResticRepository` without duplicating it — requires
+    the CI probe job to build with both tags.
+  - **Cleanup-matrix scope decision**: item 6 asked for a "dump
+    verification failure" case in the end-to-end (`internal/backup`)
+    integration suite. Constructing that precisely at the `Engine.Run`
+    level with a *real* corrupted dump would require racing to corrupt
+    the file between Dump and VerifyDump — not reliably constructible
+    without new production hooks. Split instead: real corrupted-dump
+    detection is tested directly against `postgres.Client.VerifyDump`
+    (`TestIntegration_VerifyDump_CorruptedFile`), and the
+    orchestration guarantee ("verify failure ⇒ Restic never called") is
+    already proven with fakes (`TestEngine_Run_VerifyFailureNeverCallsRestic`,
+    Phase A). Go's control flow through that branch doesn't differ
+    between a real and a fake `VerifyDump` error, so re-proving the
+    orchestration with a real binary wouldn't add coverage, only
+    flakiness risk.
+  - **`TestIntegration_Run_PostgresConnectivityFailure_CleansUp` doesn't
+    require `restic`** (uses a structurally-valid but never-invoked
+    `ResticConfig`), specifically so it still runs in the
+    postgres-integration CI job, which doesn't install restic at all —
+    caught this by actually running the suite locally (restic absent,
+    postgres client tools present but no sudo) and noticing the test
+    skipped for the wrong reason.
+  - **PostgreSQL peer-auth CI job creates a dedicated `servervault_test`
+    OS+DB role** (`createuser --createdb`, not superuser) rather than
+    running as `postgres` — least privilege, and a truer exercise of the
+    identity-mapping peer-auth path than reusing the admin role would be.
+  - **CI verification steps** (`restic version`, `sudo -u
+    servervault_test psql -Atc 'SELECT 1'`) added right after each
+    install step specifically so a broken CI setup fails the job instead
+    of surfacing as misleadingly-passing skipped tests — the per-test
+    skip logic itself is unchanged from local-dev behavior.
+- Open questions / follow-ups: `postgres-integration` CI job is
+  `continue-on-error: true` per the approved plan — worth revisiting
+  (promote to required) once it's proven stable over a few runs.
+  `restic-integration` and the lock probe have not been run against a
+  real GitHub Actions runner yet (only locally, where `restic` is absent
+  and the suite correctly skips) — first real CI run is the actual
+  verification of the YAML/install steps themselves.

@@ -62,6 +62,19 @@ Status: Phase A complete (Restic + PostgreSQL); MySQL not started.
 - [x] `servervault backup`
 - [x] `servervault doctor` gained real Restic/PostgreSQL/lock-state checks
       (previously `SKIP`), plus `--json` output
+- [x] Integration test milestone — real `restic`/`pg_dump`/`pg_restore`/
+      `psql` against temporary local repositories and disposable
+      databases, gated behind a dedicated `integration` build tag,
+      separate from the default unit suite. Covers: real backup/check/
+      snapshots/wrong-password (Restic), real dump/verify/corrupted-dump
+      (PostgreSQL), end-to-end `Engine.Run` with PostgreSQL on/off,
+      cancellation, and the full cleanup matrix against real subprocesses.
+      A concurrent-lock test (real `flock`, fake backends) runs
+      untagged, always. A restic lock-*conflict* probe against a real
+      backend is opt-in (`resticlock` tag), version-sensitive, and
+      manual/scheduled-only in CI — the deterministic version of that
+      check (exit code 11 classification) is a normal unit test. See
+      `.github/workflows/integration.yml`, `docs/testing.md`.
 
 Not in Phase A (later v0.3.0 work or v0.4.0+): retention/prune, restore,
 notifications, `internal/mysql`. See `AI_MEMORY.md` for the full Phase A

@@ -139,6 +139,28 @@ func TestRepository_CatConfig_Failure(t *testing.T) {
 	}
 }
 
+func TestRepository_Check_LockConflictIsClassifiedDeterministically(t *testing.T) {
+	// Deterministic, fake-Runner equivalent of "another restic process
+	// holds the repository lock" (restic exit code 11) -- doesn't need a
+	// real restic binary or real timing/concurrency; see
+	// internal/restic/lockprobe_test.go (opt-in, resticlock-tagged) for
+	// the best-effort real-binary probe of the same scenario.
+	runner := &fakeRunner{exitCode: 11}
+	repo := New(runner, testConfig())
+
+	err := repo.Check(context.Background(), CheckOptions{})
+	if err == nil {
+		t.Fatal("Check(): want an error, got nil")
+	}
+	var exitErr *ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("error = %v, want it to unwrap to *ExitError", err)
+	}
+	if exitErr.Code != ExitLockFailed {
+		t.Errorf("Code = %v, want ExitLockFailed", exitErr.Code)
+	}
+}
+
 func TestRepository_Check_ArgvWithReadData(t *testing.T) {
 	runner := &fakeRunner{}
 	repo := New(runner, testConfig())
