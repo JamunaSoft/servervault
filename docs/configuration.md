@@ -30,8 +30,7 @@ be writable by anyone but root (`install.sh` installs it `0600`).
 
 ## Go rewrite (`go-rewrite`): layered YAML config
 
-The config package (`internal/config`, in progress — see
-[`ROADMAP.md`](../ROADMAP.md)) loads configuration in layers, each
+The config package (`internal/config`) loads configuration in layers, each
 overriding the last:
 
 ```text
@@ -61,18 +60,43 @@ and [`configs/logging.example.yaml`](../configs/logging.example.yaml),
 strip the `.example` suffix, and edit — again, never commit the edited
 copies.
 
+### PostgreSQL authentication
+
+Leave `postgres.host` empty (the default). ServerVault then connects via
+the local Unix socket and runs `pg_dump`/`psql` as `postgres.user` through
+non-interactive `sudo`, relying on PostgreSQL peer authentication — the
+same model the shell implementation uses, with no password anywhere.
+Setting `postgres.host` switches to a TCP connection, which needs a
+different, password-based auth setup this tool does not manage.
+
+### Locking
+
+`backup.lock_file` (default `/run/lock/servervault-backup.lock`) prevents
+two backups from running concurrently — see
+[`docs/security-model.md`](security-model.md). It deliberately defaults to
+the same path the shell implementation's `servervault-backup` uses, so a
+shell-driven and a Go-driven backup mutually exclude each other during a
+migration period where both might be scheduled.
+
 ### Validation
 
-`servervault config validate` (planned) checks, without making any
-changes:
+`servervault config validate` checks, without making any filesystem
+changes (structural/shape validation only):
 
 - the repository URL parses for a supported backend
-- the password file exists and is not world/group readable
-- backup paths exist and are readable
-- retention values are non-negative and sane relative to each other
+- the password file path is set and absolute
+- backup paths are set and absolute
+- retention values are non-negative and not all zero
 - PostgreSQL connection settings are well-formed
-- restore destinations are writable and not inside a live path
+- restore destinations don't overlap a live backup path, and the temp
+  database prefix doesn't equal the live database name (see
+  [`docs/security-model.md`](security-model.md))
 - backend-specific syntax (e.g. `sftp:`, `s3:`, `b2:` prefixes)
+
+`servervault doctor` covers the filesystem/environment-reality checks
+`config validate` deliberately doesn't (does the password file actually
+exist with safe permissions, are backup paths actually present, is the
+Restic repository actually reachable, is PostgreSQL actually reachable).
 
 Exit codes follow the `doctor` convention — see
 [`docs/testing.md`](testing.md) and the project's `doctor` design in

@@ -34,11 +34,13 @@ Structured as a small `cmd/servervault` entry point plus focused
 cmd/servervault  --(wires)-->  internal/cli
                                     |
                                     v
-                 internal/{config,doctor,logger}   (foundation, current milestone)
+             internal/{config,doctor,logger,version,execx}   (foundation, v0.2.0-alpha)
                                     |
                                     v
-        internal/{restic,postgres,backup,restore,retention,lock,health,notify}
-                                    (backup engine, later milestone)
+             internal/{restic,postgres,backup,lock}          (backup engine, v0.3.0 Phase A)
+                                    |
+                                    v
+             internal/{restore,retention,health,notify}      (later milestones — not started)
 ```
 
 Design rules that shape the package boundaries:

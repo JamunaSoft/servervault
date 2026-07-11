@@ -105,6 +105,12 @@ func validateBackup(b BackupConfig) ValidationErrors {
 		errs = append(errs, ValidationError{"backup.root", "must be an absolute path"})
 	}
 
+	if b.LockFile == "" {
+		errs = append(errs, ValidationError{"backup.lock_file", "must not be empty"})
+	} else if !strings.HasPrefix(b.LockFile, "/") {
+		errs = append(errs, ValidationError{"backup.lock_file", "must be an absolute path"})
+	}
+
 	return errs
 }
 

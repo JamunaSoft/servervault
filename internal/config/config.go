@@ -29,6 +29,14 @@ type ResticConfig struct {
 
 // PostgresConfig configures the PostgreSQL database dumped and verified as
 // part of a backup.
+//
+// Host and Port default to empty/unset, not "127.0.0.1"/5432: an empty
+// Host means "connect via the local Unix socket," which is what enables
+// peer authentication (sudo -u <user> psql/pg_dump with no password at
+// all) — the same auth model the shell implementation relies on. Setting
+// Host explicitly switches to a TCP connection, which requires a
+// different, password-based auth method that ServerVault does not
+// implement; see internal/postgres.
 type PostgresConfig struct {
 	Enabled   bool   `yaml:"enabled"`
 	Database  string `yaml:"database"`
@@ -44,6 +52,11 @@ type BackupConfig struct {
 	Paths       []string `yaml:"paths"`
 	ExcludeFile string   `yaml:"exclude_file"`
 	Root        string   `yaml:"root"`
+	// LockFile prevents concurrent backups (internal/lock). It
+	// deliberately defaults to the same path the shell implementation's
+	// servervault-backup uses, so a shell-driven and a Go-driven backup
+	// mutually exclude each other during a shell-to-Go migration period.
+	LockFile string `yaml:"lock_file"`
 }
 
 // RestoreConfig configures where restores land by default. Restores never
@@ -83,13 +96,13 @@ func Defaults() *Config {
 		Postgres: PostgresConfig{
 			Enabled:   true,
 			User:      "postgres",
-			Host:      "127.0.0.1",
 			Port:      5432,
 			ZstdLevel: 10,
 		},
 		Backup: BackupConfig{
 			ExcludeFile: "/etc/servervault/excludes.txt",
 			Root:        "/var/backups/servervault",
+			LockFile:    "/run/lock/servervault-backup.lock",
 		},
 		Restore: RestoreConfig{
 			StagingRoot:        "/var/restore/servervault",

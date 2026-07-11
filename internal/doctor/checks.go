@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/JamunaSoft/servervault/internal/config"
+	"github.com/JamunaSoft/servervault/internal/lock"
 )
 
 func checkPlatform() Check {
@@ -218,4 +220,66 @@ func checkTimezone() Check {
 		Status: StatusOK,
 		Detail: fmt.Sprintf("%s (UTC%s%02d:%02d)", name, sign, hours, minutes),
 	}
+}
+
+// checkResticAccess performs the cheapest possible reachability and
+// authentication check against the configured Restic repository
+// (`restic cat config`) without listing snapshots or touching any data.
+func checkResticAccess(ctx context.Context, opts Options) Check {
+	const name = "Restic repository access"
+
+	if opts.Config.Restic.Repository == "" {
+		return Check{Name: name, Status: StatusSkip, Detail: "restic.repository is not configured"}
+	}
+	if opts.Restic == nil {
+		return Check{Name: name, Status: StatusSkip, Detail: "no Restic client available"}
+	}
+	if err := opts.Restic.CatConfig(ctx); err != nil {
+		return Check{Name: name, Status: StatusFail, Detail: err.Error()}
+	}
+	return Check{Name: name, Status: StatusOK, Detail: "repository reachable and password valid"}
+}
+
+// checkPostgresConnectivity verifies the configured PostgreSQL database is
+// reachable (`SELECT 1`), matching the shell implementation's pre-backup
+// check.
+func checkPostgresConnectivity(ctx context.Context, opts Options) Check {
+	const name = "PostgreSQL connectivity"
+
+	if !opts.Config.Postgres.Enabled {
+		return Check{Name: name, Status: StatusSkip, Detail: "postgres.enabled is false"}
+	}
+	if opts.Postgres == nil {
+		return Check{Name: name, Status: StatusSkip, Detail: "no PostgreSQL client available"}
+	}
+	if err := opts.Postgres.Ping(ctx); err != nil {
+		return Check{Name: name, Status: StatusFail, Detail: err.Error()}
+	}
+	return Check{
+		Name:   name,
+		Status: StatusOK,
+		Detail: fmt.Sprintf("connected to database %q as %q", opts.Config.Postgres.Database, opts.Config.Postgres.User),
+	}
+}
+
+// checkLockState reports whether a backup is currently in progress on this
+// host, via internal/lock's non-destructive Status probe. A held lock is a
+// WARN, not a FAIL: it usually just means a backup is legitimately
+// running right now, not that anything is broken.
+func checkLockState(opts Options) Check {
+	const name = "backup lock state"
+
+	path := opts.Config.Backup.LockFile
+	if path == "" {
+		return Check{Name: name, Status: StatusSkip, Detail: "backup.lock_file is not configured"}
+	}
+
+	held, detail, err := lock.Status(path)
+	if err != nil {
+		return Check{Name: name, Status: StatusFail, Detail: err.Error()}
+	}
+	if held {
+		return Check{Name: name, Status: StatusWarn, Detail: "a backup is currently running (" + strings.ReplaceAll(strings.TrimSpace(detail), "\n", ", ") + ")"}
+	}
+	return Check{Name: name, Status: StatusOK, Detail: "no backup currently running"}
 }

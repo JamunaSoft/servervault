@@ -35,7 +35,12 @@ postgres:
   enabled: true
   database: "app_production"
   user: "postgres"
-  host: "127.0.0.1"
+  # Leave host empty (the default) to connect via the local Unix socket
+  # with peer authentication -- servervault runs pg_dump/psql as `user`
+  # via non-interactive sudo, with no password anywhere. Only set host
+  # if you actually need a TCP connection to a remote PostgreSQL server;
+  # that requires a different auth setup this tool does not manage.
+  host: ""
   port: 5432
   # zstd compression level (1-19). Higher is slower and smaller.
   zstd_level: 10
@@ -48,6 +53,10 @@ backup:
     - "/etc/postgresql"
   exclude_file: "/etc/servervault/excludes.txt"
   root: "/var/backups/servervault"
+  # Prevents two backups from running at once. Deliberately the same path
+  # the shell implementation's servervault-backup uses, so a shell-driven
+  # and a Go-driven backup can't run concurrently during a migration.
+  lock_file: "/run/lock/servervault-backup.lock"
 
 # Restore defaults. Restores never target these paths/databases
 # directly by default -- see docs/security-model.md.

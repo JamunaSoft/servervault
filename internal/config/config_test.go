@@ -23,4 +23,10 @@ func TestDefaults(t *testing.T) {
 	if cfg.Restore.StagingRoot == cfg.Backup.Root {
 		t.Error("Defaults(): Restore.StagingRoot must differ from Backup.Root")
 	}
+	if cfg.Postgres.Host != "" {
+		t.Errorf("Defaults(): Postgres.Host = %q, want empty (Unix socket + peer auth, matching the shell implementation)", cfg.Postgres.Host)
+	}
+	if cfg.Backup.LockFile == "" {
+		t.Error("Defaults(): Backup.LockFile must not be empty")
+	}
 }

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,59 @@ retention:
 				t.Errorf("doctor output = %q, want it to contain %q", out.String(), tt.wantContains)
 			}
 		})
+	}
+}
+
+func TestNewDoctorCommand_JSON(t *testing.T) {
+	configPath := writeTestConfig(t, `
+restic:
+  repository: "sftp:user@host:/backups/servervault"
+  password_file: "/nonexistent/restic-password"
+backup:
+  paths:
+    - /tmp
+retention:
+  keep_daily: 7
+`)
+
+	cmd := NewDoctorCommand()
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--config", configPath, "--json"})
+
+	err := cmd.Execute()
+	if got := ExitCode(err); got != 1 {
+		t.Fatalf("ExitCode(Execute()) = %d, want 1 (output: %s)", got, out.String())
+	}
+
+	var decoded struct {
+		Checks []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &decoded); err != nil {
+		t.Fatalf("doctor --json output is not valid JSON: %v\noutput: %s", err, out.String())
+	}
+	if len(decoded.Checks) == 0 {
+		t.Fatal("decoded JSON report has no checks")
+	}
+
+	found := false
+	for _, c := range decoded.Checks {
+		if c.Name == "secret permissions" {
+			found = true
+			if c.Status != "FAIL" {
+				t.Errorf("secret permissions status = %q, want %q", c.Status, "FAIL")
+			}
+		}
+		if c.Status == "" {
+			t.Errorf("check %q has an empty status string -- MarshalJSON should render it as OK/WARN/FAIL/SKIP, not a raw int", c.Name)
+		}
+	}
+	if !found {
+		t.Error("decoded JSON report missing the \"secret permissions\" check")
 	}
 }
 

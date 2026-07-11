@@ -37,14 +37,35 @@ foundation is stable — see the "Current priority" section of
 
 ## v0.3.0 — Go backup engine
 
-- [ ] `internal/restic` wrapper (context-aware, cancellable)
-- [ ] `internal/postgres` dump/verify
+Status: Phase A complete (Restic + PostgreSQL); MySQL not started.
+
+- [x] `internal/restic` wrapper (context-aware, cancellable) — `Backup`,
+      `Check`, `Snapshots`, `CatConfig`; exit codes classified (0/1/2/3/
+      10/11/12/130). Deliberately no `Init`/`Forget`/`Prune`/`Restore`/
+      `Unlock` — those capabilities don't exist in the package, not just
+      unused.
+- [x] `internal/postgres` dump/verify — peer-auth only (`sudo -u <user>`
+      over the local Unix socket, matching the shell implementation; no
+      password anywhere), `pg_dump | zstd` piped and streamed to a 0600
+      temp file, `VerifyDump` always cleans up its temp file even on
+      failure.
 - [ ] `internal/mysql` dump/verify (MySQL/MariaDB — scope addition beyond
       the original `CLAUDE.md` package list, needed for the platform's
-      stated multi-database requirement)
-- [ ] `internal/backup` orchestration
-- [ ] `internal/lock` to prevent concurrent runs
-- [ ] `servervault backup`
+      stated multi-database requirement) — not started
+- [x] `internal/backup` orchestration — lock → ping → dump → verify →
+      Restic backup → cleanup; a failed verification never reaches Restic
+      (tested explicitly); every exit path cleans up the dump file and
+      releases the lock
+- [x] `internal/lock` to prevent concurrent runs — `flock`-based, kernel-
+      managed, no PID-file staleness; same lock path as the shell
+      implementation on purpose (see `docs/security-model.md`)
+- [x] `servervault backup`
+- [x] `servervault doctor` gained real Restic/PostgreSQL/lock-state checks
+      (previously `SKIP`), plus `--json` output
+
+Not in Phase A (later v0.3.0 work or v0.4.0+): retention/prune, restore,
+notifications, `internal/mysql`. See `AI_MEMORY.md` for the full Phase A
+design record (interfaces, error taxonomy, failure/cleanup matrix).
 
 ## v0.4.0 — Go restore and retention
 

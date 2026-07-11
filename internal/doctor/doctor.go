@@ -1,18 +1,22 @@
 // Package doctor implements ServerVault's non-destructive environment
 // checks (`servervault doctor`). Every check reads state — configuration,
-// the filesystem, PATH — and never writes or deletes anything.
+// the filesystem, PATH, the Restic repository, PostgreSQL — and never
+// writes or deletes anything.
 //
-// Checks that depend on the backup engine (internal/restic,
-// internal/postgres, and friends — not yet implemented, see
-// docs/architecture.md) report StatusSkip with a note on when they'll land,
-// rather than being silently omitted or falsely reporting success.
+// Checks that still depend on functionality that doesn't exist yet (SSH/
+// SFTP non-interactive reachability, systemd/timer integration) report
+// StatusSkip with a note on when they'll land, rather than being silently
+// omitted or falsely reporting success.
 package doctor
 
 import (
 	"context"
+	"time"
 
 	"github.com/JamunaSoft/servervault/internal/config"
 	"github.com/JamunaSoft/servervault/internal/execx"
+	"github.com/JamunaSoft/servervault/internal/postgres"
+	"github.com/JamunaSoft/servervault/internal/restic"
 )
 
 // Status is the outcome of a single check.
@@ -29,8 +33,8 @@ const (
 	// containing any StatusFail check is a failed doctor run.
 	StatusFail
 	// StatusSkip means the check could not run — typically because it
-	// depends on a package that doesn't exist yet — and is excluded from
-	// pass/fail determination.
+	// depends on functionality that doesn't exist yet, or isn't
+	// configured — and is excluded from pass/fail determination.
 	StatusSkip
 )
 
@@ -50,16 +54,23 @@ func (s Status) String() string {
 	}
 }
 
+// MarshalJSON renders Status as its string label ("OK", "FAIL", ...)
+// rather than the underlying int, so `servervault doctor --json` output
+// is self-explanatory.
+func (s Status) MarshalJSON() ([]byte, error) {
+	return []byte(`"` + s.String() + `"`), nil
+}
+
 // Check is the result of one doctor check.
 type Check struct {
-	Name   string
-	Status Status
-	Detail string
+	Name   string `json:"name"`
+	Status Status `json:"status"`
+	Detail string `json:"detail"`
 }
 
 // Report is the full set of checks from one doctor run.
 type Report struct {
-	Checks []Check
+	Checks []Check `json:"checks"`
 }
 
 // Failed reports whether any check in the report has StatusFail. StatusWarn
@@ -75,13 +86,31 @@ func (r Report) Failed() bool {
 	return false
 }
 
-// Options configures a doctor run. Commands and FreeBytes are seams for
-// tests; both default to real implementations when left nil.
+// ResticAccessChecker is the subset of *restic.Repository doctor needs.
+type ResticAccessChecker interface {
+	CatConfig(ctx context.Context) error
+}
+
+// PostgresPinger is the subset of *postgres.Client doctor needs.
+type PostgresPinger interface {
+	Ping(ctx context.Context) error
+}
+
+// Options configures a doctor run. Commands, FreeBytes, Restic, and
+// Postgres are seams for tests; all default to real implementations built
+// from Config when left nil.
 type Options struct {
 	Config    *config.Config
 	Commands  execx.CommandChecker
 	FreeBytes func(path string) (uint64, error)
+	Restic    ResticAccessChecker
+	Postgres  PostgresPinger
 }
+
+// networkCheckTimeout bounds how long the Restic/PostgreSQL reachability
+// checks wait, so an unreachable repository or database doesn't hang the
+// whole doctor run indefinitely.
+const networkCheckTimeout = 10 * time.Second
 
 // Run executes every check and returns a Report. It never returns an error
 // itself — a check that cannot complete reports StatusFail or StatusSkip
@@ -93,6 +122,15 @@ func Run(ctx context.Context, opts Options) Report {
 	if opts.FreeBytes == nil {
 		opts.FreeBytes = freeBytes
 	}
+	if opts.Restic == nil && opts.Config.Restic.Repository != "" {
+		opts.Restic = restic.New(execx.DefaultRunner{}, opts.Config.Restic)
+	}
+	if opts.Postgres == nil && opts.Config.Postgres.Enabled {
+		opts.Postgres = postgres.New(execx.DefaultRunner{}, opts.Config.Postgres)
+	}
+
+	netCtx, cancel := context.WithTimeout(ctx, networkCheckTimeout)
+	defer cancel()
 
 	return Report{
 		Checks: []Check{
@@ -104,15 +142,12 @@ func Run(ctx context.Context, opts Options) Report {
 			checkRestoreStagingOverlap(opts),
 			checkDiskSpace(opts),
 			checkTimezone(),
+			checkResticAccess(netCtx, opts),
+			checkPostgresConnectivity(netCtx, opts),
+			checkLockState(opts),
 
-			// Deferred until the backup engine (internal/restic,
-			// internal/postgres, internal/lock) exists — see
-			// docs/architecture.md's foundation/engine split and
-			// ROADMAP.md's v0.3.0 milestone.
-			deferredCheck("Restic repository access", "requires internal/restic (planned v0.3.0)"),
-			deferredCheck("PostgreSQL connectivity", "requires internal/postgres (planned v0.3.0)"),
-			deferredCheck("repository lock state", "requires internal/restic and internal/lock (planned v0.3.0)"),
-			deferredCheck("SSH/SFTP non-interactive access", "requires repository-string parsing in internal/restic (planned v0.3.0)"),
+			// Deferred: no code path exercises these yet.
+			deferredCheck("SSH/SFTP non-interactive access", "requires repository-string parsing (planned when a dedicated SFTP check is scoped)"),
 			deferredCheck("systemd/timers", "requires the agent service (planned Phase 2)"),
 		},
 	}

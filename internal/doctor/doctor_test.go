@@ -3,6 +3,8 @@ package doctor
 import (
 	"context"
 	"testing"
+
+	"github.com/JamunaSoft/servervault/internal/config"
 )
 
 func TestStatus_String(t *testing.T) {
@@ -50,8 +52,16 @@ func TestRun_UsesDefaultCollaboratorsWhenNil(t *testing.T) {
 
 	// Options.Commands and Options.FreeBytes are left nil on purpose: Run
 	// must fall back to real implementations rather than panicking on a
-	// nil interface/func call.
-	report := Run(context.Background(), Options{Config: cfg})
+	// nil interface/func call. Restic/Postgres are injected fakes so this
+	// test never invokes a real binary or touches the network -- their
+	// own nil-fallback (constructing a real client from Config) is
+	// covered by TestRun_ConstructsResticAndPostgresFromConfigWhenNil
+	// below, using a config that safely Skips instead of dialing out.
+	report := Run(context.Background(), Options{
+		Config:   cfg,
+		Restic:   fakeResticAccessChecker{},
+		Postgres: fakePostgresPinger{},
+	})
 
 	if len(report.Checks) == 0 {
 		t.Fatal("Run() returned a report with no checks")
@@ -61,15 +71,50 @@ func TestRun_UsesDefaultCollaboratorsWhenNil(t *testing.T) {
 	for _, c := range report.Checks {
 		names[c.Name] = true
 	}
-	for _, want := range []string{"OS/architecture", "required commands", "config validation", "secret permissions", "backup paths", "restore staging overlap (realpath)", "local disk space", "timezone"} {
+	for _, want := range []string{
+		"OS/architecture", "required commands", "config validation", "secret permissions",
+		"backup paths", "restore staging overlap (realpath)", "local disk space", "timezone",
+		"Restic repository access", "PostgreSQL connectivity", "backup lock state",
+	} {
 		if !names[want] {
 			t.Errorf("Run() report missing expected check %q", want)
 		}
 	}
 }
 
+func TestRun_ConstructsResticAndPostgresFromConfigWhenNil(t *testing.T) {
+	// A config with no repository and Postgres disabled means Run's
+	// nil-fallback construction (restic.New/postgres.New) never actually
+	// needs to dial out -- both checks Skip immediately -- so this
+	// exercises the fallback path itself without a real subprocess call.
+	cfg := config.Defaults()
+	cfg.Restic.Repository = ""
+	cfg.Postgres.Enabled = false
+
+	report := Run(context.Background(), Options{Config: cfg})
+
+	for _, name := range []string{"Restic repository access", "PostgreSQL connectivity"} {
+		found := false
+		for _, c := range report.Checks {
+			if c.Name == name {
+				found = true
+				if c.Status != StatusSkip {
+					t.Errorf("%s status = %v, want StatusSkip", name, c.Status)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("Run() report missing check %q", name)
+		}
+	}
+}
+
 func TestRun_DeferredChecksAreSkippedNotFailed(t *testing.T) {
-	report := Run(context.Background(), Options{Config: baseConfig()})
+	report := Run(context.Background(), Options{
+		Config:   baseConfig(),
+		Restic:   fakeResticAccessChecker{},
+		Postgres: fakePostgresPinger{},
+	})
 
 	skipCount := 0
 	for _, c := range report.Checks {
@@ -77,8 +122,8 @@ func TestRun_DeferredChecksAreSkippedNotFailed(t *testing.T) {
 			skipCount++
 		}
 	}
-	if skipCount < 5 {
-		t.Errorf("Run() report has %d StatusSkip checks, want at least 5 (the deferred backup-engine checks)", skipCount)
+	if skipCount < 2 {
+		t.Errorf("Run() report has %d StatusSkip checks, want at least 2 (the still-deferred checks)", skipCount)
 	}
 	// A fresh Defaults()-based config (no real password file, no real
 	// backup paths) is expected to fail some checks — but Skip statuses

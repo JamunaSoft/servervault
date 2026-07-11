@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/JamunaSoft/servervault/internal/config"
+	"github.com/JamunaSoft/servervault/internal/lock"
 )
 
 // fakeCommandChecker is an execx.CommandChecker test double so
@@ -23,6 +25,18 @@ func (f fakeCommandChecker) LookPath(name string) (string, error) {
 	}
 	return "", fmt.Errorf("%s: executable file not found in $PATH", name)
 }
+
+// fakeResticAccessChecker and fakePostgresPinger let doctor tests exercise
+// checkResticAccess/checkPostgresConnectivity (and Run() as a whole)
+// without ever invoking a real restic/psql binary or touching the
+// network.
+type fakeResticAccessChecker struct{ err error }
+
+func (f fakeResticAccessChecker) CatConfig(ctx context.Context) error { return f.err }
+
+type fakePostgresPinger struct{ err error }
+
+func (f fakePostgresPinger) Ping(ctx context.Context) error { return f.err }
 
 func baseConfig() *config.Config {
 	cfg := config.Defaults()
@@ -342,4 +356,126 @@ func TestCheckPlatform(t *testing.T) {
 	if check.Status != StatusOK && check.Status != StatusWarn {
 		t.Errorf("checkPlatform() status = %v, want StatusOK or StatusWarn", check.Status)
 	}
+}
+
+func TestCheckResticAccess(t *testing.T) {
+	tests := []struct {
+		name       string
+		mutateCfg  func(*config.Config)
+		restic     ResticAccessChecker
+		wantStatus Status
+	}{
+		{
+			name:       "not configured",
+			mutateCfg:  func(c *config.Config) { c.Restic.Repository = "" },
+			wantStatus: StatusSkip,
+		},
+		{
+			name:       "no client available",
+			restic:     nil,
+			wantStatus: StatusSkip,
+		},
+		{
+			name:       "reachable",
+			restic:     fakeResticAccessChecker{},
+			wantStatus: StatusOK,
+		},
+		{
+			name:       "unreachable",
+			restic:     fakeResticAccessChecker{err: errors.New("wrong password")},
+			wantStatus: StatusFail,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := baseConfig()
+			if tt.mutateCfg != nil {
+				tt.mutateCfg(cfg)
+			}
+			check := checkResticAccess(context.Background(), Options{Config: cfg, Restic: tt.restic})
+			if check.Status != tt.wantStatus {
+				t.Errorf("checkResticAccess() status = %v, want %v (detail: %s)", check.Status, tt.wantStatus, check.Detail)
+			}
+		})
+	}
+}
+
+func TestCheckPostgresConnectivity(t *testing.T) {
+	tests := []struct {
+		name       string
+		mutateCfg  func(*config.Config)
+		postgres   PostgresPinger
+		wantStatus Status
+	}{
+		{
+			name:       "disabled",
+			mutateCfg:  func(c *config.Config) { c.Postgres.Enabled = false },
+			wantStatus: StatusSkip,
+		},
+		{
+			name:       "no client available",
+			postgres:   nil,
+			wantStatus: StatusSkip,
+		},
+		{
+			name:       "reachable",
+			postgres:   fakePostgresPinger{},
+			wantStatus: StatusOK,
+		},
+		{
+			name:       "unreachable",
+			postgres:   fakePostgresPinger{err: errors.New("connection refused")},
+			wantStatus: StatusFail,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := baseConfig()
+			if tt.mutateCfg != nil {
+				tt.mutateCfg(cfg)
+			}
+			check := checkPostgresConnectivity(context.Background(), Options{Config: cfg, Postgres: tt.postgres})
+			if check.Status != tt.wantStatus {
+				t.Errorf("checkPostgresConnectivity() status = %v, want %v (detail: %s)", check.Status, tt.wantStatus, check.Detail)
+			}
+		})
+	}
+}
+
+func TestCheckLockState(t *testing.T) {
+	t.Run("not configured", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.Backup.LockFile = ""
+		check := checkLockState(Options{Config: cfg})
+		if check.Status != StatusSkip {
+			t.Errorf("status = %v, want StatusSkip", check.Status)
+		}
+	})
+
+	t.Run("free", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.Backup.LockFile = filepath.Join(t.TempDir(), "backup.lock")
+		check := checkLockState(Options{Config: cfg})
+		if check.Status != StatusOK {
+			t.Errorf("status = %v, want StatusOK (detail: %s)", check.Status, check.Detail)
+		}
+	})
+
+	t.Run("held", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.Backup.LockFile = filepath.Join(t.TempDir(), "backup.lock")
+
+		held, err := lock.Acquire(cfg.Backup.LockFile)
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		defer held.Release()
+
+		check := checkLockState(Options{Config: cfg})
+		if check.Status != StatusWarn {
+			t.Errorf("status = %v, want StatusWarn while held (detail: %s)", check.Status, check.Detail)
+		}
+	})
 }

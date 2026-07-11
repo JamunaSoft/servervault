@@ -22,6 +22,7 @@ func main() {
 	rootCmd.AddCommand(cli.NewVersionCommand())
 	rootCmd.AddCommand(cli.NewDoctorCommand())
 	rootCmd.AddCommand(cli.NewConfigCommand())
+	rootCmd.AddCommand(cli.NewBackupCommand())
 
 	err := rootCmd.ExecuteContext(ctx)
 	os.Exit(cli.ExitCode(err))

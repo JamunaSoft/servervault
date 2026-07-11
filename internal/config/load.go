@@ -109,6 +109,9 @@ func applyEnv(cfg *Config) error {
 	if v, ok := os.LookupEnv("SERVERVAULT_BACKUP_ROOT"); ok {
 		cfg.Backup.Root = v
 	}
+	if v, ok := os.LookupEnv("SERVERVAULT_BACKUP_LOCK_FILE"); ok {
+		cfg.Backup.LockFile = v
+	}
 
 	if v, ok := os.LookupEnv("SERVERVAULT_RESTORE_STAGING_ROOT"); ok {
 		cfg.Restore.StagingRoot = v

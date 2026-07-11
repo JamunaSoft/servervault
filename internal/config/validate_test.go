@@ -18,8 +18,9 @@ func validConfig() *Config {
 			ZstdLevel: 10,
 		},
 		Backup: BackupConfig{
-			Paths: []string{"/var/www"},
-			Root:  "/var/backups/servervault",
+			Paths:    []string{"/var/www"},
+			Root:     "/var/backups/servervault",
+			LockFile: "/run/lock/servervault-backup.lock",
 		},
 		Restore: RestoreConfig{
 			StagingRoot:        "/var/restore/servervault",
@@ -67,6 +68,16 @@ func TestValidate(t *testing.T) {
 			name:      "relative backup path",
 			mutate:    func(c *Config) { c.Backup.Paths = []string{"var/www"} },
 			wantField: "backup.paths",
+		},
+		{
+			name:      "empty lock file",
+			mutate:    func(c *Config) { c.Backup.LockFile = "" },
+			wantField: "backup.lock_file",
+		},
+		{
+			name:      "relative lock file",
+			mutate:    func(c *Config) { c.Backup.LockFile = "servervault-backup.lock" },
+			wantField: "backup.lock_file",
 		},
 		{
 			name:      "negative retention",

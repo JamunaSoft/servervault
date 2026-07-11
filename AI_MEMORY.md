@@ -91,3 +91,63 @@ between sessions.
   restore,retention,lock,health,notify}` are the next milestone
   (`ROADMAP.md` v0.3.0+). The full platform proposal (Phases 2–10) is
   still awaiting a build decision from the user beyond Phases 0–1.
+
+## 2026-07-12 — v0.3.0 Phase A: Restic + PostgreSQL backup engine
+
+- Branch: `go-rewrite`
+- What changed: implemented `internal/lock`, `internal/restic`,
+  `internal/postgres`, `internal/backup`, doctor integration for all
+  three, and `servervault backup`. Full design (interfaces, state flow,
+  error taxonomy, failure/cleanup matrix, security risks) was reviewed
+  and approved before implementation; see that turn's design doc for the
+  complete rationale — this entry only records what changed since the
+  design and why.
+- Decisions / rationale:
+  - **No `internal/repository` abstraction.** Considered and declined:
+    `internal/backup` already defines consumer-side `Dumper`/`Backer`
+    interfaces that `*restic.Repository`/`*postgres.Client` satisfy
+    structurally — a future Kopia/Borg implementation slots in there
+    without touching `internal/backup`. A producer-side interface with
+    one implementation risked being the wrong abstraction.
+  - **Lock path unchanged from the shell implementation**
+    (`/run/lock/servervault-backup.lock`, now `config.Backup.LockFile`).
+    Deliberate: during a shell→Go migration where both might be
+    scheduled, sharing the lock path is what makes them mutually
+    exclusive. A per-operation-type directory scheme was considered and
+    deferred to when `verify`/`restore` commands actually exist.
+  - **Restic exit code 3** ("some source files unreadable") is a
+    success with `Result.Warnings` populated, not a Go error — common
+    and expected (permission-denied on an ephemeral file), and
+    restic still produces a usable snapshot. Every other non-zero exit
+    is a hard failure.
+  - **Real bug caught during design→implementation**: Phase 1's
+    `PostgresConfig` defaulted `Host` to `"127.0.0.1"`, but the shell
+    implementation deliberately omits `-h`/`-p` so `psql`/`pg_dump`
+    connect via the local Unix socket, which is required for peer
+    authentication (`sudo -u <user>`, no password) to apply. Shipping
+    that default would have silently broken auth for anyone relying on
+    defaults — exactly the real production setup this project models.
+    Fixed: `Host` now defaults to `""`; `internal/postgres` only adds
+    `-h`/`-p` when `Host` is explicitly set.
+  - **`internal/postgres` wraps `pg_dump`/`pg_restore`/`psql` CLIs**, not
+    a Go SQL driver — preserves the shell's exact peer-auth model with no
+    new dependency. Same reasoning for `zstd` (shelled out, not a native
+    Go compression library).
+  - `execx.Runner`/`RunOptions` (streaming, `Env`, `Cancel`=SIGTERM then
+    `WaitDelay`=5s before SIGKILL) is new, generalizing the old
+    `execx.Run`, which now delegates to it — no breaking change to
+    Phase 1 callers/tests.
+  - Declined for now (YAGNI, no consumer exists yet): structured event
+    types and a `MetricsRecorder` interface. `log/slog`'s structured
+    fields already cover current needs; both belong in the platform
+    proposal's Phase 8, against a real backend to validate the shape.
+  - Accepted: `doctor --json` (small, isolated, real value); two Mermaid
+    diagrams added to `docs/backup-flow.md` instead of a full ADR
+    process for this phase.
+- Open questions / follow-ups: `internal/mysql` not started (flagged,
+  not yet confirmed for priority). `internal/{restore,retention,health,
+  notify}` are the next milestones (`ROADMAP.md` v0.4.0+). No
+  integration tests against a real Restic binary were added (not
+  installed in the dev/CI sandbox) — argv/logic correctness is covered
+  via fakes; consider a `//go:build integration` suite skip-guarded on
+  `exec.LookPath("restic")` if/when a CI environment has it.

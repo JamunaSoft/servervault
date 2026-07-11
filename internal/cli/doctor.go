@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"text/tabwriter"
@@ -16,6 +17,7 @@ import (
 // checks pass, 1 one or more required checks fail, 2 config or usage error.
 func NewDoctorCommand() *cobra.Command {
 	var configPath string
+	var jsonOutput bool
 
 	cmd := &cobra.Command{
 		Use:           "doctor",
@@ -30,7 +32,14 @@ func NewDoctorCommand() *cobra.Command {
 			}
 
 			report := doctor.Run(cmd.Context(), doctor.Options{Config: cfg})
-			printReport(cmd.OutOrStdout(), report)
+			if jsonOutput {
+				if err := printReportJSON(cmd.OutOrStdout(), report); err != nil {
+					fmt.Fprintln(cmd.ErrOrStderr(), "servervault: doctor:", err)
+					return &ExitError{Code: 2}
+				}
+			} else {
+				printReport(cmd.OutOrStdout(), report)
+			}
 
 			if report.Failed() {
 				return &ExitError{Code: 1}
@@ -40,6 +49,7 @@ func NewDoctorCommand() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&configPath, "config", "", "path to servervault.yaml (default: "+config.DefaultPath+")")
+	cmd.Flags().BoolVar(&jsonOutput, "json", false, "print the report as JSON instead of a table")
 	return cmd
 }
 
@@ -50,4 +60,10 @@ func printReport(w io.Writer, report doctor.Report) {
 		fmt.Fprintf(tw, "%s\t%s\t%s\n", c.Name, c.Status, c.Detail)
 	}
 	tw.Flush()
+}
+
+func printReportJSON(w io.Writer, report doctor.Report) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(report)
 }
