@@ -33,6 +33,15 @@ sudo servervault-backup
 
 Initial release targets Ubuntu 24.04 and Debian-compatible systems using PostgreSQL and Restic. Other databases and storage backends are planned.
 
+## Branches
+
+This repository carries two implementations side by side while the Go rewrite is in progress:
+
+- **`main`** — the stable, production-oriented shell implementation described above (`bin/`, `install.sh`, `systemd/`). This is what `install.sh` installs today. It receives bug fixes only; new features land in the Go rewrite instead.
+- **`go-rewrite`** — active development of a Go CLI (`cmd/servervault`, `internal/`) intended to eventually replace the shell implementation. It is pre-alpha and not yet feature-complete; do not rely on it for production backups. See [`ROADMAP.md`](ROADMAP.md) for milestone status and [`docs/architecture.md`](docs/architecture.md) for how the two implementations relate.
+
+Incomplete Go work is never merged into `main`. If you just want a working backup tool, use `main`.
+
 ## Security
 
 Never commit repository passwords, SSH private keys, database passwords, or production `.env` files. Store the Restic password in a root-readable file with mode `0600`.

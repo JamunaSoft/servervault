@@ -8,6 +8,11 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
+# TODO(internal/version): main.Version/Commit/Date are set directly on the
+# `main` package (see cmd/servervault/main.go) because there is no
+# internal/version package yet. Once one exists (see ROADMAP.md v0.2.0-alpha
+# "build metadata"), move these -X targets to internal/version.Version/
+# Commit/Date and update the ldflags in .github/workflows/release.yml too.
 LDFLAGS := -s -w \
 	-X main.Version=$(VERSION) \
 	-X main.Commit=$(COMMIT) \

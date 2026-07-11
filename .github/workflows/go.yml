@@ -6,13 +6,13 @@ on:
       - main
       - go-rewrite
     paths:
-      - "**.go"
+      - "**/*.go"
       - "go.mod"
       - "go.sum"
       - ".github/workflows/go.yml"
   pull_request:
     paths:
-      - "**.go"
+      - "**/*.go"
       - "go.mod"
       - "go.sum"
       - ".github/workflows/go.yml"
