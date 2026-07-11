@@ -50,13 +50,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-          # TODO(internal/version): main.Version/Commit/Date are set directly on
-          # the `main` package (see cmd/servervault/main.go) because there is no
-          # internal/version package yet. Once one exists (see ROADMAP.md
-          # v0.2.0-alpha "build metadata"), move these -X targets to
-          # internal/version.Version/Commit/Date and update this ldflags string
-          # and the one in Makefile together.
-          ldflags="-s -w -X main.Version=${VERSION} -X main.Commit=${COMMIT} -X main.Date=${DATE}"
+          pkg="github.com/JamunaSoft/servervault/internal/version"
+          ldflags="-s -w -X ${pkg}.Version=${VERSION} -X ${pkg}.Commit=${COMMIT} -X ${pkg}.Date=${DATE}"
           targets=(
             "linux amd64"
             "linux arm64"

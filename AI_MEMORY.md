@@ -50,3 +50,44 @@ between sessions.
 - Open questions / follow-ups: `internal/config`, `internal/doctor`,
   `internal/logger`, and friends are still empty packages; that is the
   next milestone (see `ROADMAP.md` v0.2.0-alpha).
+
+## 2026-07-11 — Platform architecture proposal + v0.2.0-alpha foundation
+
+- Branch: `go-rewrite`
+- What changed: (1) delivered a full architecture proposal for evolving
+  ServerVault into a multi-server control-plane/agent platform (Phases
+  0–10) as an artifact, approved for Phases 0–1 only; (2) implemented
+  `v0.2.0-alpha`'s foundation for real: `internal/version`,
+  `internal/execx`, `internal/config` (types, YAML+env loading,
+  filesystem-free validation), `internal/logger`, `internal/doctor`
+  (7 real checks + 5 explicitly `SKIP`ped checks pending the backup
+  engine), and CLI wiring (`servervault doctor`, `servervault config
+  validate`, refactored `servervault version`). Every package ships with
+  table-driven tests. Fixed the `-X main.Version=...` ldflags in
+  `Makefile`/`release.yml` to target `internal/version` now that it
+  exists (resolves the TODO left in the prior session). Added
+  `docs/threat-model.md` and a platform-roadmap summary table in
+  `ROADMAP.md`.
+- Decisions / rationale: scoped "Phase 1 foundations" to exactly
+  `docs/architecture.md`'s existing "foundation, current milestone" tier
+  (`config`, `doctor`, `logger`, plus `version`/`execx` as supporting
+  plumbing) and explicitly excluded the backup engine
+  (`restic/postgres/mysql/backup/restore/retention/lock/health/notify`)
+  — that tier is already labeled "later milestone" in the same diagram,
+  and CLAUDE.md says not to start it yet. `doctor` checks that need the
+  backup engine (repository access, PostgreSQL connectivity, lock state,
+  SSH reachability, systemd/timers) report `StatusSkip` with a reason
+  rather than being faked or silently omitted — `Report.Failed()` only
+  reacts to `StatusFail`, so skips never block a clean exit code.
+  `config.Validate` is deliberately filesystem-free (structural checks
+  only); `doctor` owns the I/O-requiring checks (file existence,
+  permissions) — this split maps directly to the two separate check
+  lists in `CLAUDE.md` ("Config design: Validate" vs. "Doctor command").
+  Of the 13 platform docs proposed in the architecture artifact, only
+  `docs/threat-model.md` was written now; the rest are deferred to their
+  own phases to avoid speculative documentation that drifts from
+  not-yet-built code.
+- Open questions / follow-ups: `internal/{restic,postgres,mysql,backup,
+  restore,retention,lock,health,notify}` are the next milestone
+  (`ROADMAP.md` v0.3.0+). The full platform proposal (Phases 2–10) is
+  still awaiting a build decision from the user beyond Phases 0–1.

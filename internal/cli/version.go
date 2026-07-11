@@ -2,21 +2,28 @@ package cli
 
 import (
 	"fmt"
-	"runtime"
 
+	"github.com/JamunaSoft/servervault/internal/version"
 	"github.com/spf13/cobra"
 )
 
-func NewVersionCommand(version, commit, date string) *cobra.Command {
+// NewVersionCommand builds `servervault version`. Build metadata comes from
+// internal/version, set at link time via -ldflags (see Makefile and
+// .github/workflows/release.yml) rather than passed in here, so this
+// package stays a thin Cobra wrapper with no state of its own.
+func NewVersionCommand() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Show ServerVault version information",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("ServerVault")
-			fmt.Println("Version :", version)
-			fmt.Println("Commit  :", commit)
-			fmt.Println("Built   :", date)
-			fmt.Println("Go      :", runtime.Version())
+		RunE: func(cmd *cobra.Command, args []string) error {
+			info := version.Get()
+			out := cmd.OutOrStdout()
+			fmt.Fprintln(out, "ServerVault")
+			fmt.Fprintln(out, "Version :", info.Version)
+			fmt.Fprintln(out, "Commit  :", info.Commit)
+			fmt.Fprintln(out, "Built   :", info.Date)
+			fmt.Fprintln(out, "Go      :", info.GoVersion)
+			return nil
 		},
 	}
 }

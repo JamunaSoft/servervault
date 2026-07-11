@@ -1,25 +1,28 @@
 package main
 
 import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
 	"github.com/JamunaSoft/servervault/internal/cli"
 	"github.com/spf13/cobra"
 )
 
-var (
-	Version = "dev"
-	Commit  = "none"
-	Date    = "unknown"
-)
-
 func main() {
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	rootCmd := &cobra.Command{
 		Use:   "servervault",
 		Short: "Server backup and disaster recovery toolkit",
 	}
 
-	rootCmd.AddCommand(cli.NewVersionCommand(Version, Commit, Date))
+	rootCmd.AddCommand(cli.NewVersionCommand())
+	rootCmd.AddCommand(cli.NewDoctorCommand())
+	rootCmd.AddCommand(cli.NewConfigCommand())
 
-	if err := rootCmd.Execute(); err != nil {
-		panic(err)
-	}
+	err := rootCmd.ExecuteContext(ctx)
+	os.Exit(cli.ExitCode(err))
 }
