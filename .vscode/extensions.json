@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "golang.go",
+    "timonwong.shellcheck",
+    "foxundermoon.shell-format",
+    "redhat.vscode-yaml",
+    "eamodio.gitlens",
+    "editorconfig.editorconfig"
+  ]
+}

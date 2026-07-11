@@ -1,0 +1,19 @@
+# CODEOWNERS
+# See: https://docs.github.com/articles/about-code-owners
+#
+# These owners are requested for review on matching pull requests.
+# Order matters: later, more specific patterns override earlier ones.
+
+* @JamunaSoft
+
+/cmd/            @JamunaSoft
+/internal/       @JamunaSoft
+/bin/            @JamunaSoft
+/install.sh      @JamunaSoft
+/systemd/        @JamunaSoft
+
+/.github/        @JamunaSoft
+/docs/           @JamunaSoft
+/configs/        @JamunaSoft
+
+SECURITY.md      @JamunaSoft

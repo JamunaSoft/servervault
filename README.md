@@ -39,7 +39,19 @@ Never commit repository passwords, SSH private keys, database passwords, or prod
 
 ## Disaster recovery
 
-See [docs/DISASTER_RECOVERY.md](docs/DISASTER_RECOVERY.md).
+See [docs/disaster-recovery.md](docs/disaster-recovery.md).
+
+## Documentation
+
+- [Architecture](docs/architecture.md)
+- [Configuration](docs/configuration.md)
+- [Deployment](docs/deployment.md)
+- [Backup flow](docs/backup-flow.md)
+- [Restore flow](docs/restore-flow.md)
+- [Security model](docs/security-model.md)
+- [Development](docs/development.md)
+- [Testing](docs/testing.md)
+- [FAQ](docs/faq.md)
 
 ## Acknowledgements
 

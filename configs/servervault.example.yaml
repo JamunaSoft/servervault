@@ -1,0 +1,71 @@
+# ServerVault example configuration (Go rewrite).
+#
+# Copy this file, remove the .example suffix, and edit the placeholder
+# values. Do not commit the edited copy — it is expected to contain
+# environment-specific paths and repository details.
+#
+# Precedence when servervault loads configuration:
+#   flags > environment variables > this YAML file > built-in defaults
+#
+# Environment variables use the SERVERVAULT_ prefix with underscores in
+# place of dots, e.g. `restic.repository` -> SERVERVAULT_RESTIC_REPOSITORY.
+
+# Restic repository settings.
+restic:
+  # Any Restic-supported backend URL. Examples:
+  #   sftp:USER@HOST:/backups/servervault
+  #   s3:s3.REGION.amazonaws.com/BUCKET_NAME
+  #   b2:BUCKET_NAME:PATH
+  repository: "sftp:USER@HOST:/backups/servervault"
+
+  # File containing the Restic repository password. Must be readable
+  # only by the user running servervault (mode 0600) and must never be
+  # committed to version control.
+  password_file: "/etc/servervault/restic-password"
+
+  # Optional SSH command override for the sftp backend.
+  sftp_command: "ssh -i /etc/servervault/ssh/backup_key -o IdentitiesOnly=yes"
+
+  # Extra tags applied to every snapshot, in addition to the host tag.
+  tags:
+    - servervault
+
+# PostgreSQL settings used for dump/verify.
+postgres:
+  enabled: true
+  database: "app_production"
+  user: "postgres"
+  host: "127.0.0.1"
+  port: 5432
+  # zstd compression level (1-19). Higher is slower and smaller.
+  zstd_level: 10
+
+# Paths included in every backup, in addition to the PostgreSQL dump.
+backup:
+  paths:
+    - "/var/www"
+    - "/etc/nginx"
+    - "/etc/postgresql"
+  exclude_file: "/etc/servervault/excludes.txt"
+  root: "/var/backups/servervault"
+
+# Restore defaults. Restores never target these paths/databases
+# directly by default -- see docs/security-model.md.
+restore:
+  staging_root: "/var/restore/servervault"
+  temp_database_prefix: "servervault_restore_"
+
+# Retention policy applied by `servervault prune`.
+retention:
+  keep_daily: 7
+  keep_weekly: 4
+  keep_monthly: 12
+
+# Host/tag identity used for snapshots. Defaults to the system hostname
+# if omitted.
+host_tag: ""
+
+# Optional failure notifications. Leave the URL unset to disable.
+notify:
+  enabled: false
+  webhook_url: ""
