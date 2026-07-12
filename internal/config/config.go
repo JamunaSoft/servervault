@@ -19,11 +19,20 @@ type Config struct {
 	Notify    NotifyConfig    `yaml:"notify"`
 	// StateDir is where ServerVault keeps its own local operational
 	// state -- currently just internal/job and internal/event's SQLite
+<<<<<<< HEAD
 	// database (jobs.db/events.db) -- as opposed to backup output
 	// (Backup.Root) or configuration (/etc/servervault). `servervault
 	// backup` is the first command that needs somewhere concrete to
 	// open a job.Store; the local agent daemon (a later milestone) is
 	// expected to reuse this same field rather than introduce its own.
+=======
+	// database (jobs.db) -- as opposed to backup output (Backup.Root) or
+	// configuration (/etc/servervault). Introduced in v0.4.0-alpha.1
+	// because `servervault restore` is the first command that needs
+	// somewhere concrete to open a job.Store; the local agent daemon
+	// (a later milestone) is expected to reuse this same field rather
+	// than introduce its own.
+>>>>>>> 4c2dfaf (feat(config): add restore lock file and state directory)
 	StateDir string `yaml:"state_dir"`
 }
 
@@ -73,6 +82,15 @@ type BackupConfig struct {
 type RestoreConfig struct {
 	StagingRoot        string `yaml:"staging_root"`
 	TempDatabasePrefix string `yaml:"temp_database_prefix"`
+	// LockFile prevents concurrent restores (internal/lock), the same
+	// way Backup.LockFile prevents concurrent backups. A separate file
+	// from the backup lock: a restore and a backup targeting different
+	// local resources (a fresh staging directory vs. the configured dump
+	// directory) don't need to serialize against each other by lock
+	// alone -- see docs/restore-flow.md for how internal/restore instead
+	// checks the backup lock's status before starting, rather than
+	// contending on the same lock file.
+	LockFile string `yaml:"lock_file"`
 }
 
 // RetentionConfig configures how many snapshots `servervault prune` keeps.
@@ -115,6 +133,7 @@ func Defaults() *Config {
 		Restore: RestoreConfig{
 			StagingRoot:        "/var/restore/servervault",
 			TempDatabasePrefix: "servervault_restore_",
+			LockFile:           "/run/lock/servervault-restore.lock",
 		},
 		Retention: RetentionConfig{
 			KeepDaily:   7,
