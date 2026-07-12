@@ -2,6 +2,9 @@
 
 ServerVault is a production-oriented Linux backup framework built around Restic, PostgreSQL dumps, Zstandard compression, systemd timers, and SFTP-compatible storage such as Hetzner Storage Box.
 
+> **Current stable implementation:** shell (`main`) — production-ready, this is what `install.sh` installs.
+> **Go rewrite:** experimental (`go-rewrite`, `v0.3.0-alpha`) — pre-release, not yet at feature parity, not recommended for production. See [Branches](#branches) below.
+
 ## Features
 
 - PostgreSQL custom-format dumps compressed with Zstandard
@@ -38,7 +41,7 @@ Initial release targets Ubuntu 24.04 and Debian-compatible systems using Postgre
 This repository carries two implementations side by side while the Go rewrite is in progress:
 
 - **`main`** — the stable, production-oriented shell implementation described above (`bin/`, `install.sh`, `systemd/`). This is what `install.sh` installs today. It receives bug fixes only; new features land in the Go rewrite instead.
-- **`go-rewrite`** — active development of a Go CLI (`cmd/servervault`, `internal/`) intended to eventually replace the shell implementation. It is pre-alpha and not yet feature-complete; do not rely on it for production backups. See [`ROADMAP.md`](ROADMAP.md) for milestone status and [`docs/architecture.md`](docs/architecture.md) for how the two implementations relate.
+- **`go-rewrite`** — active development of a Go CLI (`cmd/servervault`, `internal/`) intended to eventually replace the shell implementation. Currently `v0.3.0-alpha`: the CLI foundation and a Restic+PostgreSQL backup engine exist and are covered by unit and integration tests, but restore, retention, health/status, and notifications are not yet implemented — do not rely on it for production backups. See [`ROADMAP.md`](ROADMAP.md) for milestone status and [`docs/architecture.md`](docs/architecture.md) for how the two implementations relate.
 
 Incomplete Go work is never merged into `main`. If you just want a working backup tool, use `main`.
 

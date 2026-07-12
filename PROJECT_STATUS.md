@@ -8,7 +8,7 @@
 
 ## Current commits
 - `main`: PostgreSQL verification fix commit `698ae03`
-- `go-rewrite`: Cobra CLI and version command commit `cc618f3`
+- `go-rewrite`: `d348f60` (tagged `v0.3.0-alpha`)
 
 ## Production deployment already tested
 - Host: `srv.eea.bd`
@@ -70,22 +70,30 @@ rm -f "$TMP_DUMP"
 - Go: 1.22.2
 - Module: `github.com/JamunaSoft/servervault`
 - Cobra: `v1.8.1`
-- Working command: `servervault version`
-- Current files:
-  - `cmd/servervault/main.go`
-  - `internal/cli/version.go`
+- Working commands: `servervault version`, `doctor`, `config validate`, `backup`
+- v0.2.0-alpha (CLI foundation) and v0.3.0 Phase A (Restic+PostgreSQL
+  backup engine) are both complete — see `ROADMAP.md` for the full,
+  current package-by-package checklist.
 
-## Immediate milestone: v0.2.0-alpha
-1. Root CLI package
-2. Config package
-3. YAML config
-4. Environment overrides
-5. Structured logging with `log/slog`
-6. `servervault doctor`
-7. `servervault config validate`
-8. Build metadata with `-ldflags`
-9. Makefile
-10. Go CI
-11. Unit tests
+## Current milestone
 
-Do not build the production backup engine in Go before this foundation is stable.
+```text
+✅ v0.3.0-alpha tag pushed; draft GitHub release built
+
+Status: Release hardening
+
+Current branch: go-rewrite
+
+Next milestone: v0.4.0-a — restore preparation (design phase first;
+not started)
+
+Blocked by:
+- Draft release review + publish as pre-release
+- Branch protection rules on main
+- 2-3 more consecutive green postgres-integration CI runs
+```
+
+Do not build MySQL/restore/retention/health/notifications in Go, and do
+not merge `go-rewrite` into `main`, until the items above are closed and
+the relevant milestone's design has been reviewed — see `ROADMAP.md` and
+`AI_MEMORY.md`.
