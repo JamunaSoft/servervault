@@ -308,6 +308,7 @@ between sessions.
   human decision, not automated by this session. `internal/backup`
   retrofit onto `internal/job`/`internal/event` remains unscheduled (see
   above). Where the shared SQLite state file lives on disk in a real
+<<<<<<< HEAD
   deployment (an `agent.state_dir`-style config field) is left for
   v0.9.0's Local Agent milestone, since only a long-running daemon
   actually owns a persistent state directory today.
@@ -386,3 +387,114 @@ between sessions.
   surface as a conflict when `feature/restore-v0.4.0-alpha.1` is rebased
   onto `go-rewrite` post-merge — expected, trivial, not a real conflict
   in substance.
+=======
+  deployment turned out to be needed sooner than expected — see the next
+  entry.
+
+## 2026-07-13 — v0.4.0-alpha.1 Safe restore (same autonomous session)
+
+- Branch: `feature/restore-v0.4.0-alpha.1`, branched from
+  `feature/core-infrastructure-v0.3.5` (not from `go-rewrite` directly —
+  see the branching deviation below), not merged.
+- What changed: added `Restore`/`Stats`/`List` to `internal/restic`;
+  `RestoreToTemp`/`CreateDatabase`/`DatabaseExists`/`DropDatabase`/
+  `PingDatabase` to `internal/postgres`; the new `internal/restore`
+  package (`Planner`, `Executor`); `servervault snapshots` and
+  `servervault restore`; two new config fields
+  (`restore.lock_file`, `state_dir`); a real-binary integration suite
+  that builds its own fixture snapshot via a real `backup.Engine.Run`
+  and restores from it for real; and extended `postgres-integration` CI
+  to also install restic. Full detail (files, tests, exact validation
+  results) is in this session's final report, not duplicated here.
+- Decisions / rationale:
+  - **Branched from `feature/core-infrastructure-v0.3.5`, not
+    `go-rewrite`, despite the session brief's literal branch-strategy
+    section saying to start from `go-rewrite`.** `go-rewrite` doesn't
+    have `internal/job`/`internal/event` merged yet (that PR hasn't been
+    reviewed), and this milestone's acceptance criteria explicitly
+    require both ("every restore appears in job history," "every
+    operation emits structured events"). Branching from `go-rewrite`
+    would have meant either reimplementing those packages a second time
+    on a diverged branch, or silently failing to meet the stated
+    acceptance criteria. Branching from the still-unmerged v0.3.5 branch
+    was the only option that let this milestone actually satisfy its own
+    spec. This branch should be rebased onto `go-rewrite` once v0.3.5 is
+    reviewed and merged — flagged prominently in the final report, not
+    just here.
+  - **`StateDir` config field added now, not deferred to v0.9.0 as
+    v0.3.5's docs originally assumed.** `docs/core-infrastructure.md`
+    said the SQLite state file's location was a decision for the future
+    Local Agent milestone, on the assumption that no CLI command would
+    open a `job.Store` before then. That assumption broke the moment
+    `servervault restore` needed to open one for real. Added a single
+    top-level `Config.StateDir` (default `/var/lib/servervault`,
+    validated the same way as other absolute-path fields) rather than a
+    restore-specific field, so the future agent daemon reuses it instead
+    of needing its own.
+  - **`internal/backup.Engine` still not retrofitted onto
+    `internal/job`/`internal/event`** — same reasoning as the v0.3.5
+    entry above, still deliberate, still not done in this session either.
+  - **Deliberately conservative choice on restore/backup lock
+    interaction**: restore acquires its own dedicated lock file
+    (`restore.lock_file`) but additionally *refuses to start at all* if
+    the backup lock is currently held (`ErrBackupInProgress`), rather
+    than relying solely on restic's own per-repository locking. The spec
+    wording ("must not conflict with backup/verify operations where
+    shared resources make that unsafe") was genuinely ambiguous about
+    exactly what "shared resources" meant; picked the more conservative
+    reading (avoid the operational confusion of restore and backup
+    writing to the local filesystem at the same moment) rather than
+    guessing narrowly and potentially missing a real conflict. Documented
+    in `docs/restore-flow.md` as revisitable if it proves too strict.
+  - **Two-phase temp-database restore**: `restic restore --include
+    <dump-path>` extracts *only* the located dump file into an internal
+    extraction directory first, then `postgres.RestoreToTemp` runs
+    against that local copy — mirroring the shell implementation's
+    "extract latest PostgreSQL dump" menu option exactly (see
+    `docs/restore-flow.md`'s pre-existing shell documentation), rather
+    than restoring the whole snapshot just to reach one file.
+  - **`context.WithoutCancel` for every cleanup path** (dropping an
+    owned temporary database, recording a job's terminal state after a
+    cancelled run). Without it, a cancelled `ctx` would make the cleanup
+    operations themselves fail immediately (both `internal/execx` and
+    `database/sql` check `ctx.Err()` before starting), silently skipping
+    exactly the cleanup that cancellation made necessary — caught this
+    by reasoning through the cancellation path before writing the test
+    for it, not by observing a failure.
+  - **Explicit, closed-set database-name validation
+    (`[A-Za-z0-9_.-]`)** in `internal/postgres/restore.go` for every
+    method that interpolates a database name into a SQL string
+    (`DatabaseExists`'s existence check has no client-side parameter
+    binding available for `psql -Atc`). `createdb`/`dropdb`/
+    `pg_restore --dbname=` all receive the name as a single argv element
+    via `internal/execx`, which never invokes a shell, so this isn't a
+    shell-injection concern — it's defense against a database name
+    confusing psql's own SQL identifier parsing.
+  - **Restic restore-summary JSON parsing is best-effort, not verified
+    against a real binary in this session.** No `restic` binary is
+    installed in the sandboxed environment this was written in (checked:
+    `restic version` → command not found), so `parseRestoreJSON`'s field
+    names (`files_restored`/`total_files`, `bytes_restored`/
+    `total_bytes`) are based on restic's documented `--json` output
+    schema, unit-tested only against constructed fixture JSON. PostgreSQL
+    client tools *were* available locally, but a real integration run
+    still wasn't possible: no passwordless `sudo`, so the peer-auth role
+    creation `NewPostgresDatabase` needs would itself have failed (it
+    skips cleanly, not fails, when that happens — verified this really
+    does skip rather than silently pass). CI's `restic-integration` and
+    (now restic+postgres) `postgres-integration` jobs are the actual
+    first real-binary verification of all of this — flagged explicitly
+    in the final report rather than claimed as already proven.
+  - **Did not attempt to install restic in the coding session**,
+    consistent with the standing instruction from an earlier session
+    (recorded above, 2026-07-12 entry) not to download/execute external
+    binaries in the sandbox, reinforced here by this session's own
+    explicit rule against installing dependencies outside the approved
+    CI/package-manager path.
+- Open questions / follow-ups: neither feature branch has been reviewed
+  or merged into `go-rewrite`. Real restic/postgres integration coverage
+  for restore has not yet run on an actual GitHub Actions runner — that
+  first real run is the true verification of the JSON parsing and the
+  full extract-then-restore pipeline. `internal/retention` (`servervault
+  prune`) is the next milestone per the approved roadmap, not started.
+>>>>>>> c9307e4 (docs: record v0.4.0-alpha.1 completion in roadmap and status)

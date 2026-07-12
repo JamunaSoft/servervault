@@ -70,7 +70,7 @@ rm -f "$TMP_DUMP"
 - Go: 1.22.2
 - Module: `github.com/JamunaSoft/servervault`
 - Cobra: `v1.8.1`
-- Working commands: `servervault version`, `doctor`, `config validate`, `backup`
+- Working commands: `servervault version`, `doctor`, `config validate`, `backup`, `snapshots`, `restore` (the last two on `feature/restore-v0.4.0-alpha.1`, not yet merged into `go-rewrite`)
 - v0.2.0-alpha (CLI foundation) and v0.3.0 Phase A (Restic+PostgreSQL
   backup engine) are both complete — see `ROADMAP.md` for the full,
   current package-by-package checklist.
@@ -80,29 +80,23 @@ rm -f "$TMP_DUMP"
 ```text
 ✅ v0.3.0-alpha tag pushed; draft GitHub release built
 ✅ v0.3.5 (core infrastructure: internal/job, internal/scheduler,
-   internal/event, plus internal/backup.Engine integration) complete
-   on feature/core-infrastructure-v0.3.5, not yet merged into
-   go-rewrite -- every acceptance criterion honestly met, including
-   the internal/backup retrofit originally deferred
-✅ v0.4.0-alpha.1 (safe restore) complete on
-   feature/restore-v0.4.0-alpha.1, stacked on
-   feature/core-infrastructure-v0.3.5 pending its merge, not yet
-   merged into go-rewrite
+   internal/event) complete on feature/core-infrastructure-v0.3.5,
+   not yet merged into go-rewrite
 
-Status: both feature branches ready for review; go-rewrite unchanged
+Status: v0.4.0-alpha.1 (safe restore) in progress
 
-Current branch: go-rewrite (work happened on
-feature/core-infrastructure-v0.3.5 and feature/restore-v0.4.0-alpha.1 --
-one branch per milestone, not merged automatically; see AI_MEMORY.md for
-the autonomous sessions that produced them)
+Current branch: go-rewrite (work happening on
+feature/core-infrastructure-v0.3.5 and, next,
+feature/restore-v0.4.0-alpha.1 -- one branch per milestone, not merged
+automatically; see AI_MEMORY.md for the autonomous session that produced
+them)
 
 Blocked by:
 - Draft release review + publish as pre-release
 - Branch protection rules on main
 - 2-3 more consecutive green postgres-integration CI runs
-- Feature branch review + merge into go-rewrite: core-infrastructure
-  first (it's the base of the stack), then rebase and merge restore
-  (not opened automatically -- see AI_MEMORY.md)
+- Feature branch review/merge into go-rewrite for v0.3.5 and
+  v0.4.0-alpha.1 (not opened automatically -- see AI_MEMORY.md)
 ```
 
 Do not build MySQL/retention/health/notifications in Go, and do not merge

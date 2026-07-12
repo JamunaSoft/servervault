@@ -121,8 +121,27 @@ storage backends directly).
 
 ## v0.4.0-alpha.1 — Safe restore
 
-- [ ] `internal/restore` (staging-first restore, temp-DB restore)
-- [ ] `servervault snapshots`, `servervault restore`
+Status: complete on `feature/restore-v0.4.0-alpha.1`, pending review/merge.
+
+- [x] `internal/restic` -- added `Restore`, `Stats`, `List` (the one
+      deliberate, scoped addition beyond Phase A; `Init`/`Forget`/
+      `Prune`/`Unlock` remain entirely absent)
+- [x] `internal/postgres` -- added `RestoreToTemp`, `CreateDatabase`,
+      `DatabaseExists`, `DropDatabase`, `PingDatabase`
+- [x] `internal/restore` -- `Planner` (read-only, real repository
+      metadata via `restic stats`/`restic ls`, never guessed) and
+      `Executor` (dedicated restore lock, refuses to run alongside a
+      backup, revalidates critical assumptions immediately before
+      writing, every restore recorded in `internal/job` history and
+      `internal/event`, cleanup on success/failure/cancellation). See
+      [`docs/restore-flow.md`](docs/restore-flow.md).
+- [x] `servervault snapshots`, `servervault restore --target
+      files|temp-db [--path] [--database] [--dry-run] [--yes] [--output
+      text|json]`
+- [x] Integration tests: real snapshot created via a real
+      `backup.Engine.Run`, then restored for real (files and temp-db,
+      including cancellation and revalidation-triggered rejection) --
+      see [`docs/testing.md`](docs/testing.md)
 
 Retention (`internal/retention`, `servervault prune`) and
 `servervault verify` move to their own later milestones -- see the
