@@ -66,7 +66,7 @@ func (r *Repository) run(ctx context.Context, args []string) (stdout, stderr byt
 func (r *Repository) CatConfig(ctx context.Context) error {
 	_, stderr, err := r.run(ctx, []string{"cat", "config"})
 	if err != nil {
-		return &ExitError{Code: classify(err), Err: wrapWithStderr(err, "restic cat config", stderr)}
+		return &ExitError{Code: classifyResult(err, stderr), Err: wrapWithStderr(err, "restic cat config", stderr)}
 	}
 	return nil
 }
@@ -87,9 +87,20 @@ func (r *Repository) Check(ctx context.Context, opts CheckOptions) error {
 	}
 	_, stderr, err := r.run(ctx, args)
 	if err != nil {
-		return &ExitError{Code: classify(err), Err: wrapWithStderr(err, "restic check", stderr)}
+		return &ExitError{Code: classifyResult(err, stderr), Err: wrapWithStderr(err, "restic check", stderr)}
 	}
 	return nil
+}
+
+// classifyResult combines exit-code-based classification (classify) with
+// stderr-content-based classification (classifyStderr), preferring the
+// stderr signal when it matches something specific -- see classifyStderr's
+// doc comment for why.
+func classifyResult(err error, stderr bytes.Buffer) ExitCode {
+	if refined, ok := classifyStderr(stderr.String()); ok {
+		return refined
+	}
+	return classify(err)
 }
 
 func wrapWithStderr(err error, op string, stderr bytes.Buffer) error {

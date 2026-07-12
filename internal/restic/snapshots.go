@@ -24,7 +24,7 @@ func (r *Repository) Snapshots(ctx context.Context, opts SnapshotsOptions) ([]Sn
 
 	stdout, stderr, err := r.run(ctx, args)
 	if err != nil {
-		return nil, &ExitError{Code: classify(err), Err: wrapWithStderr(err, "restic snapshots", stderr)}
+		return nil, &ExitError{Code: classifyResult(err, stderr), Err: wrapWithStderr(err, "restic snapshots", stderr)}
 	}
 
 	var raw []struct {

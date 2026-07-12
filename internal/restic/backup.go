@@ -58,7 +58,7 @@ func (r *Repository) Backup(ctx context.Context, opts BackupOptions) (Summary, e
 
 	stdout, stderr, runErr := r.run(ctx, args)
 
-	code := classify(runErr)
+	code := classifyResult(runErr, stderr)
 	if runErr != nil && code != ExitBackupIncomplete {
 		return Summary{}, &ExitError{Code: code, Err: wrapWithStderr(runErr, "restic backup", stderr)}
 	}

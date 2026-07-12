@@ -3,6 +3,7 @@ package restic
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/JamunaSoft/servervault/internal/execx"
 )
@@ -107,3 +108,63 @@ func (e *ExitError) Error() string {
 }
 
 func (e *ExitError) Unwrap() error { return e.Err }
+
+// wrongPasswordSignatures and repositoryNotFoundSignatures are substrings
+// of restic's own stderr output, observed in practice (including in CI)
+// to appear on a generic exit status 1 rather than the documented 12/10 --
+// restic's exit-code-to-condition mapping is not consistent enough across
+// versions/build configurations to rely on the exit code alone for these
+// two conditions. Substrings, not full messages: restic's exact wording
+// has drifted across versions (e.g. "wrong password or no key found" vs.
+// older/newer phrasings), so matching a short, stable fragment is more
+// robust than matching a whole sentence.
+var (
+	wrongPasswordSignatures = []string{
+		"wrong password",
+		"no key found",
+	}
+	repositoryNotFoundSignatures = []string{
+		"unable to open config file",
+		"is there a repository at",
+	}
+)
+
+// classifyStderr inspects normalized restic stderr output for known error
+// signatures and returns the matching ExitCode with ok=true, or ok=false
+// if nothing matched. It never touches the process exit code -- callers
+// combine this with classify's exit-code-based result, preferring
+// classifyStderr's answer when it has one, since it's a more specific
+// signal straight from restic's own error text.
+//
+// Deterministic: pure substring containment on lowercased, whitespace-
+// normalized text -- no regular expressions, no version-specific parsing.
+func classifyStderr(stderr string) (ExitCode, bool) {
+	normalized := normalizeStderr(stderr)
+	if normalized == "" {
+		return ExitSuccess, false
+	}
+	if containsAny(normalized, wrongPasswordSignatures) {
+		return ExitWrongPassword, true
+	}
+	if containsAny(normalized, repositoryNotFoundSignatures) {
+		return ExitRepositoryNotFound, true
+	}
+	return ExitSuccess, false
+}
+
+// normalizeStderr lowercases stderr and collapses all whitespace
+// (including newlines, since restic often splits a single logical error
+// across multiple lines) into single spaces, so substring matching
+// doesn't depend on exact line-wrapping or capitalization.
+func normalizeStderr(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(s), " "))
+}
+
+func containsAny(s string, substrings []string) bool {
+	for _, sub := range substrings {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}

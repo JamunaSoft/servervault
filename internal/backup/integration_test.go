@@ -21,12 +21,30 @@ import (
 
 // integrationConfig starts from the same fixture backup_test.go's unit
 // tests use (temp Root/LockFile, a single backup path) and swaps in a
-// real, freshly-initialized local Restic repository.
+// real, freshly-initialized local Restic repository. It also overrides
+// Backup.ExcludeFile: config.Defaults() points that at
+// /etc/servervault/excludes.txt, a production path that doesn't exist in
+// CI or most dev environments -- every integration test that reaches
+// restic.Backup() must use a real, temporary exclude file instead.
 func integrationConfig(t *testing.T) *config.Config {
 	t.Helper()
 	cfg := testConfig(t)
 	cfg.Restic = testsupport.NewResticRepository(t)
+	cfg.Backup.ExcludeFile = newTestExcludeFile(t)
 	return cfg
+}
+
+// newTestExcludeFile creates an empty (comment-only) Restic exclude file
+// under t.TempDir(), so integration tests never depend on
+// /etc/servervault/excludes.txt.
+func newTestExcludeFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "excludes.txt")
+	content := "# servervault integration test -- intentionally empty\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write test exclude file: %v", err)
+	}
+	return path
 }
 
 func assertNoDumpFilesLeftBehind(t *testing.T, cfg *config.Config) {
@@ -119,6 +137,7 @@ func TestIntegration_Run_PostgresConnectivityFailure_CleansUp(t *testing.T) {
 		Repository:   "local:" + filepath.Join(t.TempDir(), "never-touched"),
 		PasswordFile: filepath.Join(t.TempDir(), "unused-password"),
 	}
+	cfg.Backup.ExcludeFile = newTestExcludeFile(t) // never reached here (Ping fails first), but kept consistent
 	cfg.Postgres = config.PostgresConfig{
 		Enabled:  true,
 		Database: "servervault_test_definitely_does_not_exist",
