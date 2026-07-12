@@ -57,12 +57,8 @@ jobs:
         run: go test -tags=integration -race ./...
 
   postgres-integration:
-    name: PostgreSQL integration (non-blocking)
+    name: PostgreSQL integration
     runs-on: ubuntu-latest
-    # Non-blocking while this job's setup proves stable in CI, per
-    # docs/testing.md. Promote to required once it's been reliable for a
-    # while.
-    continue-on-error: true
     steps:
       - name: Checkout
         uses: actions/checkout@v4

@@ -203,13 +203,18 @@ pull requests — see the CI section below. Two reasons:
     in this job, so postgres-backed tests skip here by the same
     local-developer skip logic described above — deliberate, not a gap:
     it's what keeps this job requiring only `restic`.
-  - **`postgres-integration`** (non-blocking, `continue-on-error: true`
-    while the setup proves stable): `sudo apt-get install -y postgresql
-    postgresql-client`, creates a disposable OS user and PostgreSQL role
-    named `servervault_test` with `CREATEDB` (not superuser), verifies
+  - **`postgres-integration`**: `sudo apt-get install -y postgresql
+    postgresql-client`, starts the cluster and waits for `pg_isready`,
+    creates a disposable OS user and PostgreSQL role named
+    `servervault_test` with `CREATEDB` (not superuser), verifies
     connectivity, then runs `go test -tags=integration -race
     ./internal/postgres/... ./internal/backup/...` with
-    `SERVERVAULT_TEST_POSTGRES_USER=servervault_test`.
+    `SERVERVAULT_TEST_POSTGRES_USER=servervault_test`. Ran with
+    `continue-on-error: true` while its setup was being stabilized; that's
+    since been removed now that the fixed job (cluster start/readiness
+    wait, idempotent role creation) has run green. Still not yet added as
+    a required status check in GitHub branch protection — give it a few
+    more runs first.
 - `.github/workflows/restic-lock-probe.yml` — the opt-in probe above,
   triggered by `workflow_dispatch` (manual) and a weekly `schedule`
   only — never on push or pull_request.
