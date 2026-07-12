@@ -117,8 +117,9 @@ each script performs (dump verification in `servervault-backup`,
 
 ## Integration tests
 
-The backup engine (`internal/lock`, `internal/restic`, `internal/postgres`,
-`internal/backup`) has a second, separate test suite that runs real
+The backup and restore engines (`internal/lock`, `internal/restic`,
+`internal/postgres`, `internal/backup`, `internal/restore`) have a
+second, separate test suite that runs real
 `restic`/`pg_dump`/`pg_restore`/`psql`/`zstd` against temporary, disposable
 resources — never against a production repository, database, or
 credentials. It is gated behind the `integration` build tag, so it's
@@ -139,6 +140,14 @@ make test-integration
 | Ping, dump, verify | `internal/postgres/integration_test.go` | `pg_dump`/`pg_restore`/`psql` against a disposable `servervault_test_*` database |
 | Corrupted dump detection + cleanup | same | same |
 | End-to-end backup (Postgres on/off), cancellation, cleanup after every failure mode, concurrent-lock | `internal/backup/integration_test.go`, `internal/backup/concurrency_test.go` | both of the above together |
+| File restore success, dry-run (no writes), existing-destination rejection, invalid snapshot ID, cancellation | `internal/restore/integration_test.go` | `restic`, against a real snapshot created via a real `backup.Engine.Run` in the same test |
+| Temp-database restore success (including verifying the *live* database is untouched), temp-name-collision revalidation, missing-dump rejection | same | `restic` + `pg_dump`/`pg_restore`/`psql` together, the same combination `TestIntegration_Restore_TempDB_*` needs both installed for |
+
+Every restore integration test builds its own fixture snapshot by
+running a real `backup.Engine.Run` first (see `createRealSnapshot` in
+`internal/restore/integration_test.go`), rather than hand-constructing a
+repository layout — this means the fixture is byte-for-byte what
+production backups actually produce, not an approximation of it.
 
 `internal/backup/concurrency_test.go` (the concurrent-lock test) has **no
 build tag** — it always runs as part of the normal unit suite. Concurrency
@@ -239,15 +248,22 @@ pull requests — see the CI section below. Two reasons:
   - **`restic-integration`** (required/blocking): `sudo apt-get install
     -y restic`, verifies with `restic version`, then runs
     `go test -tags=integration -race ./...`. No PostgreSQL is installed
-    in this job, so postgres-backed tests skip here by the same
+    in this job, so postgres-backed tests (including
+    `TestIntegration_Restore_TempDB_*`) skip here by the same
     local-developer skip logic described above — deliberate, not a gap:
-    it's what keeps this job requiring only `restic`.
+    it's what keeps this job requiring only `restic`. File-target restore
+    tests (`TestIntegration_Restore_Files_*`) do run here.
   - **`postgres-integration`**: `sudo apt-get install -y postgresql
-    postgresql-client`, starts the cluster and waits for `pg_isready`,
-    creates a disposable OS user and PostgreSQL role named
-    `servervault_test` with `CREATEDB` (not superuser), verifies
-    connectivity, then runs `go test -tags=integration -race
-    ./internal/postgres/... ./internal/backup/...` with
+    postgresql-client restic` (restic is installed here too, as of
+    v0.4.0-alpha.1 — `internal/restore`'s temp-database restore tests
+    need both real binaries in the same job to exercise the full
+    restic-extract-then-postgres-restore pipeline; this is the only job
+    where those tests actually run rather than skip), starts the
+    cluster and waits for `pg_isready`, creates a disposable OS user and
+    PostgreSQL role named `servervault_test` with `CREATEDB` (not
+    superuser), verifies connectivity, then runs `go test
+    -tags=integration -race ./internal/postgres/... ./internal/backup/...
+    ./internal/restore/...` with
     `SERVERVAULT_TEST_POSTGRES_USER=servervault_test`. Ran with
     `continue-on-error: true` while its setup was being stabilized; that's
     since been removed now that the fixed job (cluster start/readiness
