@@ -227,3 +227,87 @@ between sessions.
   real GitHub Actions runner yet (only locally, where `restic` is absent
   and the suite correctly skips) — first real CI run is the actual
   verification of the YAML/install steps themselves.
+
+## 2026-07-13 — v0.3.5 Core infrastructure (autonomous session)
+
+- Branch: `feature/core-infrastructure-v0.3.5` (off `go-rewrite` at
+  `23ab3c9`; not merged)
+- What changed: implemented `internal/job` (typed lifecycle state
+  machine, SQLite-backed via a pure-Go driver, optimistic-concurrency
+  transitions, crash reconciliation), `internal/scheduler`
+  (hourly/daily/weekly next-run, explicit timezone/DST handling,
+  missed-run policy, bounded exponential backoff with injectable
+  jitter), and `internal/event` (structured append-only events, closed
+  metadata schema, SQLite + no-op/in-memory sinks). Added
+  `modernc.org/sqlite` as a new dependency. Wrote
+  `docs/{core-infrastructure,job-lifecycle,scheduler,events}.md` and
+  extended `docs/testing.md`. This was executed under an explicit
+  autonomous-session brief (branch-per-milestone, no merges/releases/
+  force-pushes, extensive hard safety rules) — see that session's full
+  final report for the complete accounting of tests run, files changed,
+  and stop-condition checks.
+- Decisions / rationale:
+  - **SQLite driver: `modernc.org/sqlite`, pinned to `v1.34.4`**, not the
+    latest release — the latest (`v1.53.0`) requires Go ≥ 1.25, but this
+    module targets Go 1.22.2 per `go.mod`/CI. `v1.34.4` is the newest
+    version whose own `go.mod` declares `go 1.21`, confirmed by querying
+    `proxy.golang.org` directly rather than guessing. Pure Go (no cgo),
+    preserving the static-binary build.
+  - **`MaxOpenConns(1)` on every `*sql.DB`**, not a separate in-process
+    mutex plus multiple connections. For a local, single-process job
+    store this is simpler and more predictable than tuning
+    `busy_timeout` against real multi-connection contention, and it's
+    what makes the optimistic-concurrency `Advance` compare-and-swap
+    (an internal `row_version` column) safe under `go test -race`
+    without additional locking. Revisit if a future milestone needs
+    genuine multi-connection throughput against one file.
+  - **No down migrations for `internal/job`/`internal/event` schemas** —
+    unlike the control-plane migrations in the wider roadmap (which do
+    require tested down migrations or a documented forward-fix plan),
+    this is purely local, disposable operational history: losing it
+    means losing history, never live backup data, so a rollback path
+    wasn't judged worth the added complexity.
+  - **Hand-rolled `Schedule` type (frequency + time-of-day + weekday +
+    location), not a cron-expression parser or a third-party cron
+    library.** The roadmap only ever needs "daily/weekly/hourly at a
+    given wall-clock time"; a full cron grammar would be speculative
+    generality with no current consumer, and a third-party dependency
+    was explicitly disfavored by this session's brief unless strongly
+    justified. DST correctness is delegated to Go's own `time.Date`
+    normalization rather than reimplemented.
+  - **`job.Metadata`/`event.Metadata` are closed, typed structs, not
+    `map[string]string`** — no generic setter exists anywhere in either
+    package's public API, so a secret cannot be attached to persisted
+    history structurally, not just by convention. Both carry a
+    reflection-based regression test denylisting secret-shaped field
+    names, so a future careless addition fails the build.
+  - **Deliberately declined, despite being listed as a v0.3.5 acceptance
+    criterion in the approved roadmap: wiring `internal/job`/
+    `internal/event` into the already-shipped `internal/backup.Engine`.**
+    The autonomous session's own hard rules ("do not rewrite completed
+    packages unless a failing test or verified defect requires a small,
+    targeted fix," "existing backup tests remain green") were weighted
+    above that one acceptance line — retrofitting a stable, tested
+    package inside the same session that built the thing being
+    retrofitted was judged higher-risk than deferring it. `internal/
+    restore` (v0.4.0-alpha.1, built next in the same session) is the
+    first real production consumer instead, proving the design against
+    real usage before `internal/backup` is touched in a future, narrowly
+    -scoped change. Documented explicitly in `docs/core-infrastructure.md`,
+    `ROADMAP.md`, and the session's final report rather than silently
+    dropped.
+  - **Real crash-consistency test, not a simulated one**:
+    `TestStore_ReconcileAfterUncleanRestart` spawns the test binary
+    itself as a subprocess (`-test.run=TestHelperProcess_CrashMidJob`),
+    which creates a job, advances it, and sends itself `SIGKILL` with no
+    graceful shutdown — the standard Go subprocess-test pattern (also
+    used by `os/exec`'s own tests), chosen over asserting SQLite's WAL
+    durability by claim alone.
+- Open questions / follow-ups: the `feature/core-infrastructure-v0.3.5`
+  branch has not been reviewed or merged into `go-rewrite` — that's a
+  human decision, not automated by this session. `internal/backup`
+  retrofit onto `internal/job`/`internal/event` remains unscheduled (see
+  above). Where the shared SQLite state file lives on disk in a real
+  deployment (an `agent.state_dir`-style config field) is left for
+  v0.9.0's Local Agent milestone, since only a long-running daemon
+  actually owns a persistent state directory today.

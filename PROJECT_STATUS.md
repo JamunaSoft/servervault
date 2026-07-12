@@ -79,21 +79,28 @@ rm -f "$TMP_DUMP"
 
 ```text
 ✅ v0.3.0-alpha tag pushed; draft GitHub release built
+✅ v0.3.5 (core infrastructure: internal/job, internal/scheduler,
+   internal/event) complete on feature/core-infrastructure-v0.3.5,
+   not yet merged into go-rewrite
 
-Status: Release hardening
+Status: v0.4.0-alpha.1 (safe restore) in progress
 
-Current branch: go-rewrite
-
-Next milestone: v0.4.0-a — restore preparation (design phase first;
-not started)
+Current branch: go-rewrite (work happening on
+feature/core-infrastructure-v0.3.5 and, next,
+feature/restore-v0.4.0-alpha.1 -- one branch per milestone, not merged
+automatically; see AI_MEMORY.md for the autonomous session that produced
+them)
 
 Blocked by:
 - Draft release review + publish as pre-release
 - Branch protection rules on main
 - 2-3 more consecutive green postgres-integration CI runs
+- Feature branch review/merge into go-rewrite for v0.3.5 and
+  v0.4.0-alpha.1 (not opened automatically -- see AI_MEMORY.md)
 ```
 
-Do not build MySQL/restore/retention/health/notifications in Go, and do
-not merge `go-rewrite` into `main`, until the items above are closed and
-the relevant milestone's design has been reviewed — see `ROADMAP.md` and
-`AI_MEMORY.md`.
+Do not build MySQL/retention/health/notifications in Go, and do not merge
+`go-rewrite` into `main`, until the items above are closed and the
+relevant milestone's design has been reviewed — see `ROADMAP.md` and
+`AI_MEMORY.md`. Restore (`internal/restore`) is in progress as of this
+status update, per the approved execution roadmap's sequencing.
