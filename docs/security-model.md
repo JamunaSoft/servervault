@@ -70,6 +70,15 @@ Same rules, enforced structurally:
 - Secrets are read from files, never taken as CLI flags or logged;
   `internal/logger` is expected to never receive a secret value to log
   in the first place, rather than relying on redaction.
+- `internal/restore` (v0.4.0-alpha.1) separates planning from execution
+  and re-validates a plan's critical assumptions (destination doesn't
+  exist, temporary database name doesn't exist and isn't the live
+  database) again immediately before the first write — not just once at
+  plan time — so a change in the gap between planning and execution
+  can't silently invalidate a safety check. See
+  [`docs/restore-flow.md`](restore-flow.md) for the full flow, including
+  how a temporary database is only ever dropped by ServerVault's own
+  cleanup if the same run created it.
 
 ## Reporting
 
