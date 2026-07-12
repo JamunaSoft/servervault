@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased (go-rewrite, feature/restore-v0.4.0-alpha.1)
+
+Safe restore (v0.4.0-alpha.1 of the approved execution roadmap):
+`servervault restore` and `servervault snapshots`.
+
+- `internal/restic`: added `Restore`, `Stats`, `List` -- the one
+  deliberate, scoped write-capable addition to a package that otherwise
+  deliberately cannot delete a repository or restore over live data;
+  `Init`/`Forget`/`Prune`/`Unlock` remain entirely absent.
+- `internal/postgres`: added `RestoreToTemp` (decompress, validate via
+  `pg_restore --list`, then restore into a caller-provided database
+  name only), `CreateDatabase`/`DatabaseExists`/`DropDatabase`/
+  `PingDatabase`, all rejecting database names outside a strict
+  `[A-Za-z0-9_.-]` allow-list.
+- `internal/restore` (new package): `Planner` builds an immutable `Plan`
+  from real repository metadata (`restic stats`/`restic ls`) -- a
+  `--dry-run` performs zero writes and its output is exactly what a real
+  run would report, not an estimate. `Executor` acquires a dedicated
+  restore lock, refuses to start while a backup is in progress,
+  re-validates the plan's critical assumptions immediately before the
+  first write, records every restore in `internal/job` history and
+  `internal/event`, and cleans up on every exit path (a partially
+  restored staging directory is marked `.incomplete` rather than
+  deleted; a temporary database is dropped only if the same run created
+  it).
+- New config fields: `restore.lock_file` (concurrent-restore guard,
+  separate from the backup lock) and `state_dir` (where the job/event
+  SQLite database lives, default `/var/lib/servervault`).
+- CLI: `servervault snapshots [--json]`,
+  `servervault restore --snapshot <id> --target files|temp-db [--path]
+  [--database] [--dry-run] [--yes] [--output text|json]`. Confirmation
+  is required for a real (non-dry-run) restore: `--yes`, or typing
+  `yes` at an interactive prompt -- a non-interactive caller with
+  neither is treated as not confirmed, never as confirmed by default.
+- Integration tests build their own fixture by running a real
+  `backup.Engine.Run` first, then restore from that real snapshot for
+  real: file restore success/dry-run/existing-destination-rejection/
+  invalid-snapshot/cancellation, and temp-database restore success
+  (verifying the live database is untouched)/name-collision-revalidation/
+  missing-dump-rejection. `postgres-integration` CI now installs restic
+  alongside PostgreSQL, since these are the only tests needing both
+  real binaries in the same job.
+- Scope note: `internal/restic`'s restore-summary JSON field parsing was
+  not verified against a real restic binary in the sandboxed environment
+  this was written in (restic wasn't installed there) -- only against
+  fixture JSON matching restic's documented output schema. CI's real
+  `restic`-installed jobs are the first actual verification of that
+  parsing; see AI_MEMORY.md.
+
 ## Unreleased (go-rewrite, feature/core-infrastructure-v0.3.5)
 
 Core infrastructure (v0.3.5 of the approved execution roadmap): shared
