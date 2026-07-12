@@ -25,6 +25,7 @@ func validConfig() *Config {
 		Restore: RestoreConfig{
 			StagingRoot:        "/var/restore/servervault",
 			TempDatabasePrefix: "servervault_restore_",
+			LockFile:           "/run/lock/servervault-restore.lock",
 		},
 		Retention: RetentionConfig{
 			KeepDaily: 7,
@@ -157,6 +158,19 @@ func TestValidate(t *testing.T) {
 			wantField: "restore.temp_database_prefix",
 		},
 		{
+<<<<<<< HEAD
+=======
+			name:      "empty restore lock file",
+			mutate:    func(c *Config) { c.Restore.LockFile = "" },
+			wantField: "restore.lock_file",
+		},
+		{
+			name:      "relative restore lock file",
+			mutate:    func(c *Config) { c.Restore.LockFile = "servervault-restore.lock" },
+			wantField: "restore.lock_file",
+		},
+		{
+>>>>>>> 4c2dfaf (feat(config): add restore lock file and state directory)
 			name:      "empty state dir",
 			mutate:    func(c *Config) { c.StateDir = "" },
 			wantField: "state_dir",
