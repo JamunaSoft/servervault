@@ -36,6 +36,11 @@ type recordedCall struct {
 type fakeResponse struct {
 	stdout string
 	err    error
+	// fn, if set, runs synchronously during Run, after stdout is written
+	// but before returning -- for tests that need to observe filesystem
+	// state that's only visible during the call, e.g. handoff file
+	// permissions before RestoreToTemp's own cleanup removes them.
+	fn func(opts execx.RunOptions)
 }
 
 func (f *fakeRunner) Run(ctx context.Context, opts execx.RunOptions) error {
@@ -49,6 +54,9 @@ func (f *fakeRunner) Run(ctx context.Context, opts execx.RunOptions) error {
 	}
 	if opts.Stdout != nil && resp.stdout != "" {
 		_, _ = io.WriteString(opts.Stdout, resp.stdout)
+	}
+	if resp.fn != nil {
+		resp.fn(opts)
 	}
 	return resp.err
 }

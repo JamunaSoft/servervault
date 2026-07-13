@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/JamunaSoft/servervault/internal/execx"
@@ -25,6 +24,32 @@ func (e *RestoreError) Error() string {
 func (e *RestoreError) Unwrap() error { return e.Err }
 
 var dangerousDatabaseNameChars = dangerousFilenameChars // reuse dump.go's allow-list regexp
+
+// pgHandoffDirPrefix names the dedicated, ServerVault-owned directory
+// RestoreToTemp creates for handing the decompressed dump off to the
+// configured PostgreSQL OS user. It deliberately lives under the system
+// temp directory (os.MkdirTemp's default, os.TempDir()), never inside
+// dumpPath's own directory tree: that tree's ancestors are outside
+// ServerVault's control (an administrator-configured restore.staging_root,
+// or -- in tests -- a t.TempDir()'s own owner-only root), so no
+// permission this package sets on a directory it creates there could ever
+// guarantee postgres.user can actually traverse down to it. os.TempDir()
+// doesn't have that problem: its permissions are a property of the
+// platform (world-traversable by convention, e.g. /tmp's standard 1777),
+// not of caller-supplied configuration.
+const pgHandoffDirPrefix = "servervault-pg-restore-"
+
+// handoffDirMode and handoffFileMode are applied to the handoff directory
+// and decompressed dump file only when postgres.user differs from the
+// current process (needsSudo) -- the real pg_restore call that consumes
+// this file runs as that other user via sudo -u (see commandFor).
+// Traversal/read only, never write, and the directory grants no listing
+// permission (no read bit): a process without this exact,
+// randomly-generated path learns nothing by trying to `ls` it.
+const (
+	handoffDirMode  = 0o701
+	handoffFileMode = 0o604
+)
 
 // validDatabaseName reports whether name contains only characters safe to
 // interpolate into a `CREATE DATABASE`/`DROP DATABASE` SQL identifier and
@@ -147,9 +172,10 @@ func (c *Client) PingDatabase(ctx context.Context, name string) error {
 // --list` check VerifyDump performs), and restores it into databaseName
 // -- which the caller must already have created via CreateDatabase, empty
 // and freshly-created for this operation, never a pre-existing or live
-// database. The decompressed copy's lifetime is entirely scoped to this
+// database. The decompressed copy lives in a dedicated handoff directory
+// (see pgHandoffDirPrefix) whose lifetime is entirely scoped to this
 // call, removed on every path including a mid-restore failure, the same
-// pattern VerifyDump uses.
+// pattern VerifyDump uses for its own temp file.
 //
 // RestoreToTemp never touches any database other than databaseName -- it
 // has no code path that accepts or defaults to the live database name.
@@ -158,13 +184,33 @@ func (c *Client) RestoreToTemp(ctx context.Context, dumpPath, databaseName strin
 		return fmt.Errorf("postgres: database name %q contains characters outside [A-Za-z0-9_.-]", databaseName)
 	}
 
-	tmp, err := os.CreateTemp(filepath.Dir(dumpPath), "restore-*.dump")
+	handoffDir, err := os.MkdirTemp("", pgHandoffDirPrefix)
+	if err != nil {
+		return &RestoreError{Stage: "decompress", Err: fmt.Errorf("create handoff directory: %w", err)}
+	}
+	defer os.RemoveAll(handoffDir)
+
+	tmp, err := os.CreateTemp(handoffDir, "restore-*.dump")
 	if err != nil {
 		return &RestoreError{Stage: "decompress", Err: err}
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
 	defer tmp.Close()
+
+	if needsSudo(c.cfg.User) {
+		// The real restore call below runs as c.cfg.User via sudo -u; a
+		// freshly created directory/file (0700/0600 by default) would
+		// otherwise be unreadable to it, exactly as caught by
+		// TestIntegration_Restore_TempDB_Success. Widen only these two
+		// paths, which this call created moments ago -- never dumpPath's
+		// own directory, never anything pre-existing.
+		if err := os.Chmod(handoffDir, handoffDirMode); err != nil {
+			return &RestoreError{Stage: "decompress", Err: fmt.Errorf("set handoff directory permissions: %w", err)}
+		}
+		if err := tmp.Chmod(handoffFileMode); err != nil {
+			return &RestoreError{Stage: "decompress", Err: fmt.Errorf("set handoff file permissions: %w", err)}
+		}
+	}
 
 	var zstdStderr bytes.Buffer
 	if err := c.runner.Run(ctx, execx.RunOptions{
