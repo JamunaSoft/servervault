@@ -64,12 +64,21 @@ func (s State) Valid() bool {
 // directly, since a restore job may skip straight to BackingUp (its
 // "performing the restore" phase) without a Dumping phase, while a backup
 // job with PostgreSQL enabled visits Dumping first.
+//
+// Verifying reaches both Completed and BackingUp: internal/restore's
+// verification happens after the restore write (verifying -> completed
+// only), while internal/backup's dump verification happens *before* the
+// repository backup step -- pg_dump produces a dump, the dump is
+// verified, and only then is it safe to hand to Restic (verifying ->
+// backing_up). Both orderings are real, already-shipped control flow;
+// the graph supports both rather than forcing one consumer's step order
+// onto the other.
 var transitions = map[State][]State{
 	StatePending:   {StatePreparing, StateCancelled, StateInterrupted},
 	StatePreparing: {StateDumping, StateBackingUp, StateVerifying, StateFailed, StateCancelled, StateInterrupted},
 	StateDumping:   {StateBackingUp, StateVerifying, StateFailed, StateCancelled, StateInterrupted},
 	StateBackingUp: {StateVerifying, StateCompleted, StateFailed, StateCancelled, StateInterrupted},
-	StateVerifying: {StateCompleted, StateFailed, StateCancelled, StateInterrupted},
+	StateVerifying: {StateCompleted, StateBackingUp, StateFailed, StateCancelled, StateInterrupted},
 }
 
 // CanTransition reports whether moving from `from` to `to` is a legal

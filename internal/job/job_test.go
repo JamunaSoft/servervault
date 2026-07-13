@@ -25,6 +25,7 @@ func TestCanTransition(t *testing.T) {
 		{"backing_up to verifying", StateBackingUp, StateVerifying, true},
 		{"backing_up to completed", StateBackingUp, StateCompleted, true},
 		{"verifying to completed", StateVerifying, StateCompleted, true},
+		{"verifying to backing_up (backup verifies the dump before restic)", StateVerifying, StateBackingUp, true},
 		{"verifying to failed", StateVerifying, StateFailed, true},
 		{"completed is terminal", StateCompleted, StatePreparing, false},
 		{"failed is terminal", StateFailed, StateCompleted, false},

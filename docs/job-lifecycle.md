@@ -55,6 +55,7 @@ stateDiagram-v2
     backing_up --> interrupted
 
     verifying --> completed
+    verifying --> backing_up: backup verifies the dump before restic
     verifying --> failed
     verifying --> cancelled
     verifying --> interrupted
@@ -70,6 +71,14 @@ because not every job type visits every state: a restore-to-staging job
 has no database dump phase, so it goes straight to `backing_up` (the
 "performing the restore" phase); a backup job with PostgreSQL enabled
 visits `dumping` first.
+
+`verifying` has two legal exits for the same reason: `internal/restore`
+verifies *after* its write (`verifying → completed` only — confirming a
+restore landed correctly), while `internal/backup` verifies *before* its
+write (`verifying → backing_up` — confirming a dump is valid before
+handing it to Restic, then actually backing it up). Both are real,
+already-shipped control flow; the graph supports both orderings rather
+than forcing one consumer's step sequence onto the other.
 
 ## Persistence
 
@@ -118,12 +127,17 @@ for why.
 
 ## What consumes this package
 
-- `internal/restore` (v0.4.0-alpha.1, this session) is the first real
-  production consumer.
-- `internal/backup` (already shipped, v0.3.0 Phase A) is deliberately
-  **not** modified in this milestone to route through `internal/job` —
-  see the "Scope decisions" section of `AI_MEMORY.md`'s v0.3.5 entry for
-  why retrofitting a stable, already-tested package was judged out of
-  scope here.
+- `internal/backup` (`Engine.Run`, v0.3.0 Phase A) routes every backup
+  through this package's state machine and emits structured events at
+  each phase -- see [`docs/backup-flow.md`](backup-flow.md)'s Go-engine
+  section. Job/event tracking is optional at the `Engine` level (see
+  `backup.WithJobStore`/`backup.WithEventSink`): a caller that doesn't
+  configure either still gets a fully working backup, just untracked --
+  see that package's doc comment for the "degrades safely, never fails
+  closed at runtime" policy.
+- `internal/restore` (a sibling milestone, `v0.4.0-alpha.1`) is the
+  other real production consumer, requiring a job store unconditionally
+  (fails closed at construction, unlike backup's optional wiring) since
+  restore's cleanup-ownership tracking depends on it more directly.
 - The local agent daemon (v0.9.0, a later milestone) is expected to reuse
   this package's `JobHistory` unchanged.
