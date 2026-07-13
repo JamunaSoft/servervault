@@ -99,27 +99,33 @@ func (p *Planner) planFiles(ctx context.Context, opts PlanOptions) (Plan, error)
 	}
 	safetyChecks = append(safetyChecks, "destination is not the root filesystem (/)")
 
+	// Always resolved via `restic ls`, never `restic stats`: stats has a
+	// documented "if no snapshot is given, this command runs against
+	// all snapshots" fallback that -- for at least some restic
+	// versions -- also triggers when the given snapshot ID simply
+	// doesn't resolve to anything, rather than failing outright. That
+	// turned a bogus snapshot ID into a silently-succeeding Plan built
+	// from the wrong snapshot's stats instead of the requested one --
+	// caught by TestIntegration_Restore_Files_InvalidSnapshotID against
+	// real restic in CI, not reproducible locally (no restic binary in
+	// this environment). `restic ls` has no such fallback: it must
+	// resolve to exactly one real snapshot or it fails, which is why
+	// the scoped-path branch below was never affected by this bug.
 	var expectedFiles, expectedBytes int64
-	if opts.Path == "" {
-		stats, err := p.restic.Stats(ctx, opts.SnapshotID)
-		if err != nil {
-			return Plan{}, fmt.Errorf("restore: plan: query snapshot stats: %w", err)
-		}
-		expectedFiles = int64(stats.TotalFileCount)
-		expectedBytes = stats.TotalSize
-	} else {
-		entries, err := p.restic.List(ctx, opts.SnapshotID, opts.Path)
-		if err != nil {
-			return Plan{}, fmt.Errorf("restore: plan: list snapshot path %q: %w", opts.Path, err)
-		}
-		if len(entries) == 0 {
+	entries, err := p.restic.List(ctx, opts.SnapshotID, opts.Path)
+	if err != nil {
+		return Plan{}, fmt.Errorf("restore: plan: list snapshot %q: %w", opts.SnapshotID, err)
+	}
+	if len(entries) == 0 {
+		if opts.Path != "" {
 			return Plan{}, ErrSnapshotPathNotFound
 		}
-		for _, e := range entries {
-			if e.Type == "file" {
-				expectedFiles++
-				expectedBytes += e.Size
-			}
+		return Plan{}, ErrSnapshotNotFound
+	}
+	for _, e := range entries {
+		if e.Type == "file" {
+			expectedFiles++
+			expectedBytes += e.Size
 		}
 	}
 

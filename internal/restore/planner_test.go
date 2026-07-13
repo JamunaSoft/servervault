@@ -32,7 +32,21 @@ func deterministicPlanner(t *testing.T, restic ResticClient, cfg *config.Config)
 }
 
 func TestPlanner_PlanFiles_WholeSnapshot(t *testing.T) {
-	fr := &fakeRestic{stats: restic.Stats{TotalSize: 2048, TotalFileCount: 7}}
+	// Whole-snapshot stats are derived from `restic ls` (all entries,
+	// no path filter), not `restic stats` -- see planFiles' comment on
+	// why. 7 file entries plus 2 directory entries (ignored) sums to
+	// ExpectedFiles=7, ExpectedBytes=2048.
+	fr := &fakeRestic{listFiles: []restic.FileInfo{
+		{Path: "/var/www/a", Type: "file", Size: 100},
+		{Path: "/var/www/b", Type: "file", Size: 200},
+		{Path: "/var/www/c", Type: "file", Size: 300},
+		{Path: "/var/www/d", Type: "file", Size: 400},
+		{Path: "/var/www/e", Type: "file", Size: 500},
+		{Path: "/var/www/f", Type: "file", Size: 548},
+		{Path: "/var/www/subdir/g", Type: "file", Size: 0},
+		{Path: "/var/www/subdir", Type: "dir"},
+		{Path: "/var/www", Type: "dir"},
+	}}
 	cfg := testRestoreConfig()
 	p := deterministicPlanner(t, fr, cfg)
 
@@ -60,6 +74,24 @@ func TestPlanner_PlanFiles_WholeSnapshot(t *testing.T) {
 	}
 	if len(plan.RequiredCommands) != 1 || plan.RequiredCommands[0] != "restic" {
 		t.Errorf("RequiredCommands = %v, want [restic]", plan.RequiredCommands)
+	}
+}
+
+func TestPlanner_PlanFiles_WholeSnapshotNotFound(t *testing.T) {
+	// Pins the fix for a bug where a nonexistent snapshot ID silently
+	// succeeded on whole-snapshot Plan calls (opts.Path == "") because
+	// planFiles used to resolve existence via restic stats, which has a
+	// documented fallback to "all snapshots" that masked the bad ID. Now
+	// that both branches go through List, an empty result set (what a
+	// real `restic ls <bogus-id>` returns -- it has no such fallback)
+	// must be rejected the same way for both the whole-snapshot and
+	// scoped-path cases.
+	fr := &fakeRestic{listFiles: nil}
+	p := deterministicPlanner(t, fr, testRestoreConfig())
+
+	_, err := p.Plan(context.Background(), PlanOptions{SnapshotID: "0000000000000000000000000000000000000000000000000000000000000000", Target: TargetFiles})
+	if !errors.Is(err, ErrSnapshotNotFound) {
+		t.Errorf("err = %v, want ErrSnapshotNotFound", err)
 	}
 }
 
@@ -101,7 +133,7 @@ func TestPlanner_Plan_NeverWrites(t *testing.T) {
 	// RestoreSummary and records nothing useful for this purpose) would
 	// need to change, which is a deliberate friction point that makes
 	// "Plan performs no writes" hard to violate silently.
-	fr := &fakeRestic{stats: restic.Stats{TotalSize: 10, TotalFileCount: 1}}
+	fr := &fakeRestic{listFiles: []restic.FileInfo{{Path: "file1", Type: "file", Size: 10}}}
 	p := deterministicPlanner(t, fr, testRestoreConfig())
 
 	if _, err := p.Plan(context.Background(), PlanOptions{SnapshotID: "abc", Target: TargetFiles}); err != nil {

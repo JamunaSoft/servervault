@@ -59,7 +59,11 @@ func newTestExecutor(t *testing.T, fr *fakeRestic, fp *fakePostgres, cfg *config
 func TestExecutor_Execute_Files_Success(t *testing.T) {
 	cfg := testExecutorConfig(t)
 	fr := &fakeRestic{
-		stats:              restic.Stats{TotalFileCount: 3, TotalSize: 100},
+		listFiles: []restic.FileInfo{
+			{Path: "file1", Type: "file", Size: 40},
+			{Path: "file2", Type: "file", Size: 30},
+			{Path: "file3", Type: "file", Size: 30},
+		},
 		restoreSummary:     restic.RestoreSummary{FilesRestored: 3, BytesRestored: 100},
 		writeFileOnRestore: true,
 	}
@@ -93,7 +97,7 @@ func TestExecutor_Execute_Files_Success(t *testing.T) {
 
 func TestExecutor_Execute_Files_DestinationAlreadyExists_Revalidation(t *testing.T) {
 	cfg := testExecutorConfig(t)
-	fr := &fakeRestic{stats: restic.Stats{TotalFileCount: 1, TotalSize: 10}}
+	fr := &fakeRestic{listFiles: []restic.FileInfo{{Path: "file1", Type: "file", Size: 10}}}
 	x, _ := newTestExecutor(t, fr, nil, cfg)
 	planner, _ := NewPlanner(fr, cfg)
 
@@ -249,7 +253,7 @@ func TestExecutor_Execute_TempDB_CreateDatabaseFailure_NeverDrops(t *testing.T) 
 
 func TestExecutor_Execute_BackupInProgress_Refuses(t *testing.T) {
 	cfg := testExecutorConfig(t)
-	fr := &fakeRestic{stats: restic.Stats{TotalFileCount: 1, TotalSize: 10}}
+	fr := &fakeRestic{listFiles: []restic.FileInfo{{Path: "file1", Type: "file", Size: 10}}}
 	x, _ := newTestExecutor(t, fr, nil, cfg)
 	planner, _ := NewPlanner(fr, cfg)
 
@@ -275,7 +279,7 @@ func TestExecutor_Execute_BackupInProgress_Refuses(t *testing.T) {
 
 func TestExecutor_Execute_ConcurrentRestoresAreSerialized(t *testing.T) {
 	cfg := testExecutorConfig(t)
-	fr := &fakeRestic{stats: restic.Stats{TotalFileCount: 1, TotalSize: 10}}
+	fr := &fakeRestic{listFiles: []restic.FileInfo{{Path: "file1", Type: "file", Size: 10}}}
 	x, _ := newTestExecutor(t, fr, nil, cfg)
 	planner, _ := NewPlanner(fr, cfg)
 
@@ -298,7 +302,7 @@ func TestExecutor_Execute_ConcurrentRestoresAreSerialized(t *testing.T) {
 
 func TestExecutor_Execute_JobHistoryRecorded(t *testing.T) {
 	cfg := testExecutorConfig(t)
-	fr := &fakeRestic{stats: restic.Stats{TotalFileCount: 2, TotalSize: 50}, restoreSummary: restic.RestoreSummary{FilesRestored: 2, BytesRestored: 50}, writeFileOnRestore: true}
+	fr := &fakeRestic{listFiles: []restic.FileInfo{{Path: "file1", Type: "file", Size: 25}, {Path: "file2", Type: "file", Size: 25}}, restoreSummary: restic.RestoreSummary{FilesRestored: 2, BytesRestored: 50}, writeFileOnRestore: true}
 	sink := &event.InMemorySink{}
 	jobs := newTestJobStore(t)
 	x, err := NewExecutor(fr, nil, cfg, jobs, sink, nil)
@@ -333,7 +337,7 @@ func TestExecutor_Execute_JobHistoryRecorded(t *testing.T) {
 
 func TestExecutor_Execute_CancellationDuringRestoreMarksJobCancelled(t *testing.T) {
 	cfg := testExecutorConfig(t)
-	fr := &fakeRestic{stats: restic.Stats{TotalFileCount: 1, TotalSize: 10}, restoreErr: fmt.Errorf("restic restore: %w", context.Canceled)}
+	fr := &fakeRestic{listFiles: []restic.FileInfo{{Path: "file1", Type: "file", Size: 10}}, restoreErr: fmt.Errorf("restic restore: %w", context.Canceled)}
 	sink := &event.InMemorySink{}
 	jobs := newTestJobStore(t)
 	x, err := NewExecutor(fr, nil, cfg, jobs, sink, nil)
@@ -373,7 +377,7 @@ func TestExecutor_Execute_CancellationDuringRestoreMarksJobCancelled(t *testing.
 
 func TestExecutor_Execute_FilesFailure_MarksStagingIncomplete(t *testing.T) {
 	cfg := testExecutorConfig(t)
-	fr := &fakeRestic{stats: restic.Stats{TotalFileCount: 1, TotalSize: 10}, restoreErr: fmt.Errorf("restic restore: simulated failure")}
+	fr := &fakeRestic{listFiles: []restic.FileInfo{{Path: "file1", Type: "file", Size: 10}}, restoreErr: fmt.Errorf("restic restore: simulated failure")}
 	x, _ := newTestExecutor(t, fr, nil, cfg)
 	planner, _ := NewPlanner(fr, cfg)
 	plan, err := planner.Plan(context.Background(), PlanOptions{SnapshotID: "abc", Target: TargetFiles})

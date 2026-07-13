@@ -5,6 +5,12 @@ import (
 	"fmt"
 )
 
+// ErrSnapshotNotFound is returned by Plan when the requested snapshot ID
+// (unscoped -- no --path given) doesn't resolve to any snapshot in the
+// repository at all. Distinct from ErrSnapshotPathNotFound, which means
+// the snapshot itself was found but a --path scope within it wasn't.
+var ErrSnapshotNotFound = errors.New("restore: no matching snapshot found")
+
 // ErrSnapshotPathNotFound is returned by Plan when a --path scope doesn't
 // match any entry in the snapshot.
 var ErrSnapshotPathNotFound = errors.New("restore: no matching path found in snapshot")
