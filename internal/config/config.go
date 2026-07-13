@@ -19,20 +19,11 @@ type Config struct {
 	Notify    NotifyConfig    `yaml:"notify"`
 	// StateDir is where ServerVault keeps its own local operational
 	// state -- currently just internal/job and internal/event's SQLite
-<<<<<<< HEAD
 	// database (jobs.db/events.db) -- as opposed to backup output
-	// (Backup.Root) or configuration (/etc/servervault). `servervault
-	// backup` is the first command that needs somewhere concrete to
-	// open a job.Store; the local agent daemon (a later milestone) is
-	// expected to reuse this same field rather than introduce its own.
-=======
-	// database (jobs.db) -- as opposed to backup output (Backup.Root) or
-	// configuration (/etc/servervault). Introduced in v0.4.0-alpha.1
-	// because `servervault restore` is the first command that needs
-	// somewhere concrete to open a job.Store; the local agent daemon
-	// (a later milestone) is expected to reuse this same field rather
-	// than introduce its own.
->>>>>>> 4c2dfaf (feat(config): add restore lock file and state directory)
+	// (Backup.Root) or configuration (/etc/servervault). Both
+	// `servervault backup` and `servervault restore` open a job.Store
+	// here; the local agent daemon (a later milestone) is expected to
+	// reuse this same field rather than introduce its own.
 	StateDir string `yaml:"state_dir"`
 }
 
