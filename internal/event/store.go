@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver; pure Go, no cgo
@@ -66,9 +68,17 @@ type Store struct {
 // applies any pending event-schema migrations. The caller must call Close
 // when done. Safe to point at the same file path an internal/job.Store is
 // also using -- WAL mode allows multiple connections to one SQLite file.
+// path's parent directory is created if missing (mode 0700), matching
+// internal/job.Open's identical contract.
 func Open(path string) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("event: store path must not be empty")
+	}
+
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("event: create directory %s: %w", dir, err)
+		}
 	}
 
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")

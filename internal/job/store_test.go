@@ -24,6 +24,26 @@ func openTestStore(t *testing.T) *Store {
 	return s
 }
 
+// TestOpen_CreatesParentDirectory locks in a real bug found while wiring
+// internal/backup's CLI command up to a real state directory: Open must
+// create path's parent directory (matching internal/lock.TryAcquire's
+// identical contract) rather than assuming the caller already created
+// it -- without this, every first-run caller pointed at a fresh
+// state_dir would fail with an opaque SQLite "unable to open database
+// file" error instead of a working store.
+func TestOpen_CreatesParentDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "does", "not", "exist", "yet")
+	s, err := Open(filepath.Join(dir, "jobs.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	if _, err := s.Create(context.Background(), Job{Type: TypeBackup}); err != nil {
+		t.Fatalf("Create after Open into a nonexistent directory tree: %v", err)
+	}
+}
+
 func TestStore_CreateAndGet(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

@@ -19,6 +19,23 @@ func openTestStore(t *testing.T) *Store {
 	return s
 }
 
+// TestOpen_CreatesParentDirectory mirrors internal/job's identical
+// regression test -- see that package's doc comment for the real bug
+// this guards against.
+func TestOpen_CreatesParentDirectory(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "does", "not", "exist", "yet")
+	s, err := Open(filepath.Join(dir, "events.db"))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer s.Close()
+
+	e, _ := New(TypeJobCreated, "job-1", SeverityInfo, Metadata{})
+	if err := s.Emit(context.Background(), e); err != nil {
+		t.Fatalf("Emit after Open into a nonexistent directory tree: %v", err)
+	}
+}
+
 func TestStore_EmitAndByJob(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()

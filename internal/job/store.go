@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" driver; pure Go, no cgo
@@ -41,9 +43,18 @@ type Store struct {
 
 // Open opens (creating if necessary) the SQLite database at path and
 // applies any pending migrations. The caller must call Close when done.
+// path's parent directory is created if missing (mode 0700, matching
+// internal/lock's own TryAcquire, which has the same "the caller passed
+// a path, not a pre-created directory" contract).
 func Open(path string) (*Store, error) {
 	if path == "" {
 		return nil, errors.New("job: store path must not be empty")
+	}
+
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return nil, fmt.Errorf("job: create directory %s: %w", dir, err)
+		}
 	}
 
 	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)")
