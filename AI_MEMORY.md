@@ -305,12 +305,22 @@ between sessions.
     durability by claim alone.
 - Open questions / follow-ups: the `feature/core-infrastructure-v0.3.5`
   branch has not been reviewed or merged into `go-rewrite` — that's a
-  human decision, not automated by this session. `internal/backup`
-  retrofit onto `internal/job`/`internal/event` remains unscheduled (see
-  above). Where the shared SQLite state file lives on disk in a real
+  human decision, not automated by this session.
+  **Superseded 2026-07-13: merged into `go-rewrite` via PR #1 — see the
+  "Post-merge status correction" entry below.**
+  `internal/backup` retrofit onto `internal/job`/`internal/event`
+  remains unscheduled (see above).
+  **Superseded 2026-07-13: done in the "v0.3.5 completion pass" entry
+  directly below this one.**
+  Where the shared SQLite state file lives on disk in a real
   deployment (an `agent.state_dir`-style config field) is left for
   v0.9.0's Local Agent milestone, since only a long-running daemon
   actually owns a persistent state directory today.
+  **Superseded 2026-07-13: wrong assumption — `state_dir` turned out to
+  be needed immediately (`servervault backup` itself, not the future
+  agent daemon); added in the "v0.3.5 completion pass" entry directly
+  below, not deferred. See that entry for why the original assumption
+  didn't hold.**
 
 ## 2026-07-13 — v0.3.5 completion pass: `internal/backup` integration
 
@@ -381,8 +391,89 @@ between sessions.
     to be reconciled as a normal merge/rebase conflict when that happens
     — trivial to resolve (the two additions are identical), flagged here
     so it isn't a surprise.
-- Open questions / follow-ups: still not merged into `go-rewrite`. The
-  `state_dir` duplication across the two feature branches (above) will
-  surface as a conflict when `feature/restore-v0.4.0-alpha.1` is rebased
-  onto `go-rewrite` post-merge — expected, trivial, not a real conflict
-  in substance.
+- Open questions / follow-ups: still not merged into `go-rewrite`.
+  **Superseded 2026-07-13: merged via PR #1 — see the "Post-merge status
+  correction" entry below.**
+  The `state_dir` duplication across the two feature branches (above)
+  will surface as a conflict when `feature/restore-v0.4.0-alpha.1` is
+  rebased onto `go-rewrite` post-merge — expected, trivial, not a real
+  conflict in substance.
+  **Confirmed 2026-07-13: this prediction was correct — see the
+  "Post-merge status correction" entry below for what the actual
+  conflict looked like and how it was resolved, including a gap in the
+  first resolution attempt that left literal conflict markers in
+  committed Go source.**
+
+## 2026-07-13 — Post-merge status correction (v0.3.5 merged, restore rebased)
+
+- Branch: `feature/restore-v0.4.0-alpha.1` (after being rebased onto the
+  new `go-rewrite` tip; a later, separate session from either entry
+  above — this one only corrects stale status and finishes resolving
+  the rebase, no new features).
+- What changed: since the two entries above were written,
+  `feature/core-infrastructure-v0.3.5` was reviewed and merged into
+  `go-rewrite` via **PR #1** (merge commit `49d36c3`), and
+  `feature/restore-v0.4.0-alpha.1` was rebased onto the resulting
+  `go-rewrite` tip so it now carries both milestones' work in one
+  linear history. `v0.3.0-alpha` has been published as a pre-release,
+  and branch protection is enabled on `main`. The rebase produced a
+  conflict (predicted in the entry above): `state_dir` had been added
+  independently on both branches, with slightly different doc-comment
+  wording and, on the config-validation side, genuinely different test
+  cases (restore's `restore.lock_file` cases vs. backup's `state_dir`
+  cases) that both needed to survive the merge, not just one side.
+  A prior commit on this branch (`d96af2f`, "docs: resolve restore
+  branch rebase markers") resolved the conflict in the documentation
+  files (`AI_MEMORY.md`, `CHANGELOG.md`, `PROJECT_STATUS.md`,
+  `ROADMAP.md`) but **missed three files that still had literal,
+  uncommitted-looking `<<<<<<<`/`=======`/`>>>>>>>` markers sitting in
+  committed content**: `internal/config/config.go` (inside a doc
+  comment, but also breaking the surrounding struct literal's syntax --
+  `go build` failed outright with `syntax error: unexpected <<`),
+  `internal/config/validate_test.go` (inside the test-case table
+  literal), and `configs/servervault.example.yaml` (a comment only,
+  harmless but still wrong). This was caught by grepping the whole
+  repository for conflict-marker lines, not by CI or a build failure
+  report from an earlier session -- the branch had been sitting in this
+  broken state since the rebase.
+- Decisions / rationale:
+  - **Resolved by keeping both sides' substance, not picking a
+    "winner."** `config.go`'s `StateDir` doc comment was rewritten to
+    describe both real consumers (`servervault backup` *and*
+    `servervault restore`) rather than keeping whichever branch's
+    comment happened to be on top. `validate_test.go` keeps both the
+    `restore.lock_file` test cases (from the restore branch) and the
+    `state_dir` test cases (from the merged-in backup work) -- they
+    test different fields and neither was redundant with the other.
+    `servervault.example.yaml`'s comment was merged the same way as
+    `config.go`'s.
+  - **Fixing these three files was treated as in-scope for a
+    "docs-only" status-correction task only after explicit
+    confirmation**: the task that produced this entry was originally
+    scoped to updating only `AI_MEMORY.md` and `PROJECT_STATUS.md`,
+    with an explicit "do not change code" instruction. Finding a
+    non-buildable branch mid-task was surfaced before touching
+    anything, rather than either silently expanding scope or silently
+    writing status docs that claimed a working, review-ready branch
+    while `go build` actually failed -- the second option would have
+    made the documentation itself the source of a false claim, which is
+    worse than pausing to ask.
+  - **Verification after the fix was the same full suite as every prior
+    session on this branch** (`gofmt`, `go vet` with and without
+    `-tags=integration`, `go test -race -cover ./...`,
+    `go test -tags=integration -race ./...`, `go build
+    ./cmd/servervault`, `go mod tidy`, `git diff --check`, plus a
+    repository-wide grep for conflict markers as the first step) --
+    all clean, including `internal/restore`'s own suite, confirming the
+    rebase genuinely carried both milestones' work correctly once the
+    leftover markers were gone.
+- Open questions / follow-ups: `feature/restore-v0.4.0-alpha.1` is now a
+  clean, fully buildable, fully tested branch containing both v0.3.5 and
+  v0.4.0-alpha.1's work, rebased onto current `go-rewrite`, ready for its
+  own PR review. It has not yet been opened as (or merged via) a PR --
+  that remains a human decision. CI has not yet been observed running
+  for real against this exact rebased commit (in particular, restore's
+  `internal/restore` integration tests against real `restic`/PostgreSQL
+  in the `postgres-integration` job) -- the first real CI run against
+  this branch is still the actual verification of that, same caveat as
+  every prior entry.
