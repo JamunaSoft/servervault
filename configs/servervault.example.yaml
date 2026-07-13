@@ -83,13 +83,7 @@ notify:
   enabled: false
   webhook_url: ""
 
-<<<<<<< HEAD
-# Local operational state (the job/event SQLite database used by
-# `servervault backup`) -- distinct from backup output (backup.root) and
-# configuration (/etc/servervault).
-=======
-# Local operational state (currently just the job/event SQLite database
-# used by `servervault restore`) -- distinct from backup output
-# (backup.root) and configuration (/etc/servervault).
->>>>>>> 4c2dfaf (feat(config): add restore lock file and state directory)
+# Local operational state (the job/event SQLite database used by both
+# `servervault backup` and `servervault restore`) -- distinct from
+# backup output (backup.root) and configuration (/etc/servervault).
 state_dir: "/var/lib/servervault"
