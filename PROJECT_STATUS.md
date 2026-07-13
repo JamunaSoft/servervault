@@ -79,21 +79,33 @@ rm -f "$TMP_DUMP"
 
 ```text
 ✅ v0.3.0-alpha tag pushed; draft GitHub release built
+✅ v0.3.5 (core infrastructure: internal/job, internal/scheduler,
+   internal/event, plus internal/backup.Engine integration) complete
+   on feature/core-infrastructure-v0.3.5, not yet merged into
+   go-rewrite -- every acceptance criterion honestly met, including
+   the internal/backup retrofit originally deferred
+✅ v0.4.0-alpha.1 (safe restore) complete on
+   feature/restore-v0.4.0-alpha.1, stacked on
+   feature/core-infrastructure-v0.3.5 pending its merge, not yet
+   merged into go-rewrite
 
-Status: Release hardening
+Status: both feature branches ready for review; go-rewrite unchanged
 
-Current branch: go-rewrite
-
-Next milestone: v0.4.0-a — restore preparation (design phase first;
-not started)
+Current branch: go-rewrite (work happened on
+feature/core-infrastructure-v0.3.5 and feature/restore-v0.4.0-alpha.1 --
+one branch per milestone, not merged automatically; see AI_MEMORY.md for
+the autonomous sessions that produced them)
 
 Blocked by:
 - Draft release review + publish as pre-release
 - Branch protection rules on main
 - 2-3 more consecutive green postgres-integration CI runs
+- Feature branch review + merge into go-rewrite: core-infrastructure
+  first (it's the base of the stack), then rebase and merge restore
+  (not opened automatically -- see AI_MEMORY.md)
 ```
 
-Do not build MySQL/restore/retention/health/notifications in Go, and do
-not merge `go-rewrite` into `main`, until the items above are closed and
-the relevant milestone's design has been reviewed — see `ROADMAP.md` and
+Do not build MySQL/retention/health/notifications in Go, and do not merge
+`go-rewrite` into `main`, until the items above are closed and the
+relevant milestone's design has been reviewed — see `ROADMAP.md` and
 `AI_MEMORY.md`.

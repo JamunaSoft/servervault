@@ -227,3 +227,162 @@ between sessions.
   real GitHub Actions runner yet (only locally, where `restic` is absent
   and the suite correctly skips) — first real CI run is the actual
   verification of the YAML/install steps themselves.
+
+## 2026-07-13 — v0.3.5 Core infrastructure (autonomous session)
+
+- Branch: `feature/core-infrastructure-v0.3.5` (off `go-rewrite` at
+  `23ab3c9`; not merged)
+- What changed: implemented `internal/job` (typed lifecycle state
+  machine, SQLite-backed via a pure-Go driver, optimistic-concurrency
+  transitions, crash reconciliation), `internal/scheduler`
+  (hourly/daily/weekly next-run, explicit timezone/DST handling,
+  missed-run policy, bounded exponential backoff with injectable
+  jitter), and `internal/event` (structured append-only events, closed
+  metadata schema, SQLite + no-op/in-memory sinks). Added
+  `modernc.org/sqlite` as a new dependency. Wrote
+  `docs/{core-infrastructure,job-lifecycle,scheduler,events}.md` and
+  extended `docs/testing.md`. This was executed under an explicit
+  autonomous-session brief (branch-per-milestone, no merges/releases/
+  force-pushes, extensive hard safety rules) — see that session's full
+  final report for the complete accounting of tests run, files changed,
+  and stop-condition checks.
+- Decisions / rationale:
+  - **SQLite driver: `modernc.org/sqlite`, pinned to `v1.34.4`**, not the
+    latest release — the latest (`v1.53.0`) requires Go ≥ 1.25, but this
+    module targets Go 1.22.2 per `go.mod`/CI. `v1.34.4` is the newest
+    version whose own `go.mod` declares `go 1.21`, confirmed by querying
+    `proxy.golang.org` directly rather than guessing. Pure Go (no cgo),
+    preserving the static-binary build.
+  - **`MaxOpenConns(1)` on every `*sql.DB`**, not a separate in-process
+    mutex plus multiple connections. For a local, single-process job
+    store this is simpler and more predictable than tuning
+    `busy_timeout` against real multi-connection contention, and it's
+    what makes the optimistic-concurrency `Advance` compare-and-swap
+    (an internal `row_version` column) safe under `go test -race`
+    without additional locking. Revisit if a future milestone needs
+    genuine multi-connection throughput against one file.
+  - **No down migrations for `internal/job`/`internal/event` schemas** —
+    unlike the control-plane migrations in the wider roadmap (which do
+    require tested down migrations or a documented forward-fix plan),
+    this is purely local, disposable operational history: losing it
+    means losing history, never live backup data, so a rollback path
+    wasn't judged worth the added complexity.
+  - **Hand-rolled `Schedule` type (frequency + time-of-day + weekday +
+    location), not a cron-expression parser or a third-party cron
+    library.** The roadmap only ever needs "daily/weekly/hourly at a
+    given wall-clock time"; a full cron grammar would be speculative
+    generality with no current consumer, and a third-party dependency
+    was explicitly disfavored by this session's brief unless strongly
+    justified. DST correctness is delegated to Go's own `time.Date`
+    normalization rather than reimplemented.
+  - **`job.Metadata`/`event.Metadata` are closed, typed structs, not
+    `map[string]string`** — no generic setter exists anywhere in either
+    package's public API, so a secret cannot be attached to persisted
+    history structurally, not just by convention. Both carry a
+    reflection-based regression test denylisting secret-shaped field
+    names, so a future careless addition fails the build.
+  - **Deliberately declined, despite being listed as a v0.3.5 acceptance
+    criterion in the approved roadmap: wiring `internal/job`/
+    `internal/event` into the already-shipped `internal/backup.Engine`.**
+    The autonomous session's own hard rules ("do not rewrite completed
+    packages unless a failing test or verified defect requires a small,
+    targeted fix," "existing backup tests remain green") were weighted
+    above that one acceptance line — retrofitting a stable, tested
+    package inside the same session that built the thing being
+    retrofitted was judged higher-risk than deferring it. `internal/
+    restore` (v0.4.0-alpha.1, built next in the same session) is the
+    first real production consumer instead, proving the design against
+    real usage before `internal/backup` is touched in a future, narrowly
+    -scoped change. Documented explicitly in `docs/core-infrastructure.md`,
+    `ROADMAP.md`, and the session's final report rather than silently
+    dropped.
+  - **Real crash-consistency test, not a simulated one**:
+    `TestStore_ReconcileAfterUncleanRestart` spawns the test binary
+    itself as a subprocess (`-test.run=TestHelperProcess_CrashMidJob`),
+    which creates a job, advances it, and sends itself `SIGKILL` with no
+    graceful shutdown — the standard Go subprocess-test pattern (also
+    used by `os/exec`'s own tests), chosen over asserting SQLite's WAL
+    durability by claim alone.
+- Open questions / follow-ups: the `feature/core-infrastructure-v0.3.5`
+  branch has not been reviewed or merged into `go-rewrite` — that's a
+  human decision, not automated by this session. `internal/backup`
+  retrofit onto `internal/job`/`internal/event` remains unscheduled (see
+  above). Where the shared SQLite state file lives on disk in a real
+  deployment (an `agent.state_dir`-style config field) is left for
+  v0.9.0's Local Agent milestone, since only a long-running daemon
+  actually owns a persistent state directory today.
+
+## 2026-07-13 — v0.3.5 completion pass: `internal/backup` integration
+
+- Branch: `feature/core-infrastructure-v0.3.5` (same branch as the entry
+  above; a later, separate autonomous session focused specifically on
+  closing the one acceptance criterion that entry deferred).
+- What changed: `internal/backup.Engine.Run` now creates a job record
+  and advances it through the typed lifecycle with structured events at
+  each phase; `internal/job`'s transition graph gained one additive edge
+  (`verifying → backing_up`); `internal/job`/`internal/event`'s
+  `Store.Open` was fixed to create its parent directory; a new
+  `state_dir` config field; `servervault backup` wired up to actually
+  open and use the stores. Full detail (exact files, test results) is in
+  that session's final report, not duplicated here.
+- Decisions / rationale:
+  - **`New`'s signature grew a variadic `opts ...Option` parameter**
+    (`WithJobStore`, `WithEventSink`), not a new required parameter.
+    `backup_test.go`'s `testEngine` helper constructs `Engine` via a
+    direct struct literal (bypassing `New` entirely, to inject fake
+    `Dumper`/`Backer`) — a required-parameter signature change would
+    have left every existing test's engine with a nil job store anyway,
+    so the only real question was whether `New`'s *other* callers
+    (7 call sites total, only one of them production code) should have
+    to change. Variadic options meant none of them had to.
+  - **Job/event tracking is optional for backup, unconditionally
+    required for restore (`restore.NewExecutor` errors on a nil job
+    store).** Not an oversight — restore's cleanup-ownership tracking
+    (has *this* run created a temporary database it must drop on
+    failure?) depends on job/event infrastructure more directly than
+    backup's core safety properties do. Documented explicitly in
+    `internal/backup`'s package doc comment as a deliberate asymmetry,
+    not left for a reader to wonder about.
+  - **"Preparing" is entered before the lock acquisition attempt, not
+    after.** First attempt had it the other way (matching the original
+    code's structure more literally), and the new lock-busy test caught
+    a real bug immediately: `StatePending` has no direct edge to
+    `StateFailed` in the transition graph, so a lock-busy run's
+    `failJob` call silently failed to record anything, leaving the job
+    stuck showing `pending` forever. Two fixes were possible -- widen
+    the graph (add `pending → failed`), or move where "preparing"
+    starts. Chose the latter: it's arguably more semantically correct
+    anyway (attempting to acquire the lock *is* part of getting ready to
+    run, not a precondition to "getting ready"), and it didn't require
+    touching the transition graph a second time in the same session.
+  - **`Store.Open` not creating its parent directory was a real,
+    previously-undiscovered bug**, not a hypothetical: every existing
+    job/event test happened to call `t.TempDir()` and then `Open` a path
+    *inside* that already-existing directory, so nothing ever exercised
+    the "fresh, uncreated `state_dir`" case until this pass wired a real
+    CLI command up to one. Fixed in both packages identically, matching
+    `internal/lock.TryAcquire`'s already-established
+    create-parent-directory-if-missing contract -- and covered with a
+    dedicated regression test in each package directly, not left to be
+    caught only incidentally via the CLI test that surfaced it.
+  - **`Result.JobID` added (new, purely additive field)**, not because
+    the acceptance criteria asked for it directly, but because it was
+    the only clean way to make the new behavior *testable*: `job.Store`
+    has no "list all jobs" method (deliberately -- no consumer needs
+    one yet), so without a way to learn which job a given `Run` call
+    created, the new table-driven tests couldn't have asserted on job
+    state at all.
+  - **`state_dir` added to `config.Config` on this branch**, duplicating
+    what already exists on `feature/restore-v0.4.0-alpha.1` (added there
+    first, for the same reason). This is expected, not a mistake: the
+    two branches diverged before either had it, and each needed it for
+    its own real CLI wiring. Rebasing/merging order (core-infrastructure
+    first, since restore is stacked on top of it) means this will need
+    to be reconciled as a normal merge/rebase conflict when that happens
+    — trivial to resolve (the two additions are identical), flagged here
+    so it isn't a surprise.
+- Open questions / follow-ups: still not merged into `go-rewrite`. The
+  `state_dir` duplication across the two feature branches (above) will
+  surface as a conflict when `feature/restore-v0.4.0-alpha.1` is rebased
+  onto `go-rewrite` post-merge — expected, trivial, not a real conflict
+  in substance.

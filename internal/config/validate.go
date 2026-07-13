@@ -53,7 +53,18 @@ func Validate(cfg *Config) ValidationErrors {
 	errs = append(errs, validateRetention(cfg.Retention)...)
 	errs = append(errs, validatePostgres(cfg.Postgres)...)
 	errs = append(errs, validateRestore(cfg.Restore, cfg.Postgres, cfg.Backup)...)
+	errs = append(errs, validateStateDir(cfg.StateDir)...)
 
+	return errs
+}
+
+func validateStateDir(dir string) ValidationErrors {
+	var errs ValidationErrors
+	if dir == "" {
+		errs = append(errs, ValidationError{"state_dir", "must not be empty"})
+	} else if !strings.HasPrefix(dir, "/") {
+		errs = append(errs, ValidationError{"state_dir", "must be an absolute path"})
+	}
 	return errs
 }
 

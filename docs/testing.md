@@ -68,6 +68,45 @@ Test fixtures (sample YAML configs, sample `restic snapshots --json`
 output, etc.) belong in `testdata/`, following Go's convention that the
 `go` tool ignores directories named `testdata`.
 
+## Core infrastructure tests (`internal/job`, `internal/scheduler`, `internal/event`)
+
+These three packages (see [`docs/core-infrastructure.md`](core-infrastructure.md))
+are part of the default, always-run `go test ./...` suite -- no build tag,
+no real restic/PostgreSQL dependency, no external service. A few of their
+tests are worth calling out because they exercise real behavior rather
+than just asserting against fakes:
+
+- **`internal/job`'s `TestStore_ReconcileAfterUncleanRestart`** is a real
+  crash-consistency test, not a simulated one: it spawns this same test
+  binary as a subprocess (the standard Go `-test.run=TestHelperProcess_*`
+  pattern), has that subprocess create a job, advance it into a
+  non-terminal state, and send itself `SIGKILL` -- no deferred `Close`,
+  no graceful shutdown. The outer test then reopens the same SQLite file
+  in-process and asserts it isn't corrupted and that `Reconcile` marks
+  the orphaned job `interrupted`. Skipped on non-unix platforms (`SIGKILL`
+  has no equivalent). No sleeps are used to synchronize -- the test waits
+  on `cmd.Wait()`, and the subprocess's own brief `time.Sleep` before
+  killing itself is a safety margin, not a correctness requirement (the
+  write it's protecting already completed synchronously before that
+  sleep).
+- **`internal/job`'s concurrency tests**
+  (`TestStore_Advance_ConcurrentUpdatesAreSerializedSafely`,
+  `TestStore_Advance_ConcurrentDifferentJobs`) fire many real goroutines
+  at the same `Store` and assert exactly one wins a same-row race while
+  independent rows never contend -- run under `-race` in CI like every
+  other package.
+- **`internal/scheduler`'s DST tests**
+  (`TestSchedule_NextRun_DST_SpringForward`,
+  `TestSchedule_NextRun_DST_FallBack`) assert against a real
+  `America/New_York` transition date via the IANA timezone database
+  rather than a synthetic offset, and skip cleanly if that timezone data
+  isn't installed in the environment running the test.
+- **Both `internal/job.Metadata` and `internal/event.Metadata`** carry a
+  reflection-based regression test
+  (`TestMetadata_NoSecretShapedFields`) that fails the build if a future
+  change ever adds a field whose name looks like it could hold a secret
+  -- see [`docs/core-infrastructure.md`](core-infrastructure.md#safety-no-secrets-in-persisted-state).
+
 ## Shell implementation
 
 The shell scripts don't have a unit test suite; correctness is enforced

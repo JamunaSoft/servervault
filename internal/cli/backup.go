@@ -3,11 +3,14 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/JamunaSoft/servervault/internal/backup"
 	"github.com/JamunaSoft/servervault/internal/config"
+	"github.com/JamunaSoft/servervault/internal/event"
 	"github.com/JamunaSoft/servervault/internal/execx"
+	"github.com/JamunaSoft/servervault/internal/job"
 	"github.com/JamunaSoft/servervault/internal/lock"
 	"github.com/JamunaSoft/servervault/internal/logger"
 	"github.com/spf13/cobra"
@@ -46,7 +49,33 @@ func NewBackupCommand() *cobra.Command {
 			}
 			defer closeLog()
 
-			engine, err := backup.New(cfg, log, execx.DefaultRunner{})
+			// Job/event tracking is best-effort from the CLI's
+			// perspective too: a problem opening the state directory
+			// logs a warning and the backup still runs untracked,
+			// rather than blocking the one thing this tool exists to
+			// do -- see internal/backup's package doc comment for the
+			// same policy applied inside Engine.Run itself.
+			var opts []backup.Option
+			if jobStore, err := job.Open(filepath.Join(cfg.StateDir, "jobs.db")); err != nil {
+				log.Warn("backup: failed to open job store; continuing without job tracking", "error", err)
+			} else {
+				defer jobStore.Close()
+				if n, err := jobStore.Reconcile(cmd.Context()); err != nil {
+					log.Warn("backup: failed to reconcile job store", "error", err)
+				} else if n > 0 {
+					log.Warn("backup: reconciled jobs left in progress by an unclean previous exit", "count", n)
+				}
+				opts = append(opts, backup.WithJobStore(jobStore))
+
+				if eventStore, err := event.Open(filepath.Join(cfg.StateDir, "events.db")); err != nil {
+					log.Warn("backup: failed to open event store; continuing without event tracking", "error", err)
+				} else {
+					defer eventStore.Close()
+					opts = append(opts, backup.WithEventSink(eventStore))
+				}
+			}
+
+			engine, err := backup.New(cfg, log, execx.DefaultRunner{}, opts...)
 			if err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "servervault: backup:", err)
 				return &ExitError{Code: 2}

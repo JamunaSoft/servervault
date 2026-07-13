@@ -17,6 +17,14 @@ type Config struct {
 	Retention RetentionConfig `yaml:"retention"`
 	HostTag   string          `yaml:"host_tag"`
 	Notify    NotifyConfig    `yaml:"notify"`
+	// StateDir is where ServerVault keeps its own local operational
+	// state -- currently just internal/job and internal/event's SQLite
+	// database (jobs.db/events.db) -- as opposed to backup output
+	// (Backup.Root) or configuration (/etc/servervault). `servervault
+	// backup` is the first command that needs somewhere concrete to
+	// open a job.Store; the local agent daemon (a later milestone) is
+	// expected to reuse this same field rather than introduce its own.
+	StateDir string `yaml:"state_dir"`
 }
 
 // ResticConfig configures the Restic repository backup/restore operate against.
@@ -113,5 +121,6 @@ func Defaults() *Config {
 			KeepWeekly:  4,
 			KeepMonthly: 12,
 		},
+		StateDir: "/var/lib/servervault",
 	}
 }

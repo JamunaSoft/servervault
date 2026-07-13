@@ -29,6 +29,7 @@ func validConfig() *Config {
 		Retention: RetentionConfig{
 			KeepDaily: 7,
 		},
+		StateDir: "/var/lib/servervault",
 	}
 }
 
@@ -154,6 +155,16 @@ func TestValidate(t *testing.T) {
 			name:      "temp database prefix equals live database",
 			mutate:    func(c *Config) { c.Restore.TempDatabasePrefix = c.Postgres.Database },
 			wantField: "restore.temp_database_prefix",
+		},
+		{
+			name:      "empty state dir",
+			mutate:    func(c *Config) { c.StateDir = "" },
+			wantField: "state_dir",
+		},
+		{
+			name:      "relative state dir",
+			mutate:    func(c *Config) { c.StateDir = "var/lib/servervault" },
+			wantField: "state_dir",
 		},
 	}
 

@@ -78,3 +78,8 @@ host_tag: ""
 notify:
   enabled: false
   webhook_url: ""
+
+# Local operational state (the job/event SQLite database used by
+# `servervault backup`) -- distinct from backup output (backup.root) and
+# configuration (/etc/servervault).
+state_dir: "/var/lib/servervault"

@@ -80,11 +80,67 @@ Not in Phase A (later v0.3.0 work or v0.4.0+): retention/prune, restore,
 notifications, `internal/mysql`. See `AI_MEMORY.md` for the full Phase A
 design record (interfaces, error taxonomy, failure/cleanup matrix).
 
-## v0.4.0 — Go restore and retention
+## v0.3.5 — Core infrastructure
+
+Status: complete, including the `internal/backup` integration originally
+deferred (see below).
+
+Shared foundation packages, not user-facing features -- see
+[`docs/core-infrastructure.md`](docs/core-infrastructure.md) for the full
+rationale.
+
+- [x] `internal/job` -- typed job lifecycle state machine (pending →
+      preparing → dumping/backing_up → verifying → completed/failed/
+      cancelled/interrupted), SQLite-backed (pure-Go driver, WAL mode),
+      with reconciliation of orphaned in-progress jobs to `interrupted`
+      after an unclean restart. See
+      [`docs/job-lifecycle.md`](docs/job-lifecycle.md).
+- [x] `internal/scheduler` -- schedule/next-run calculation
+      (hourly/daily/weekly, explicit IANA timezone, DST-correct),
+      missed-run handling, and bounded exponential backoff with
+      injectable jitter. Pure calculation, no daemon loop. See
+      [`docs/scheduler.md`](docs/scheduler.md).
+- [x] `internal/event` -- structured, append-only operational events
+      (job/dump/backup/verification/restore lifecycle), a closed set of
+      safe metadata fields (no free-form map), SQLite-backed sink plus
+      no-op/in-memory sinks for tests. See
+      [`docs/events.md`](docs/events.md).
+- [x] `internal/backup.Engine` integration -- every `Run` call creates a
+      job record and advances it through the typed lifecycle, with
+      structured events emitted at each phase. Job/event tracking is
+      optional (`WithJobStore`/`WithEventSink`) and degrades safely
+      rather than failing a backup if unconfigured or if the store
+      itself has a problem at runtime -- see `internal/backup`'s package
+      doc comment. `servervault backup` wires this up against a new
+      `state_dir` config field.
+
+Deliberately out of scope for this milestone (see
+`docs/core-infrastructure.md`): SSH (no real caller until the control
+plane exists), a general storage abstraction (Restic already abstracts
+storage backends directly).
+
+## v0.4.0-alpha.1 — Safe restore
 
 - [ ] `internal/restore` (staging-first restore, temp-DB restore)
-- [ ] `internal/retention` (`servervault prune`)
-- [ ] `servervault snapshots`, `servervault restore`, `servervault verify`
+- [ ] `servervault snapshots`, `servervault restore`
+
+Retention (`internal/retention`, `servervault prune`) and
+`servervault verify` move to their own later milestones -- see the
+approved execution roadmap below.
+
+## Beyond v0.4.0: the approved execution roadmap
+
+The near-term milestones above (`v0.3.5` through `v0.4.0-alpha.1`) are
+the first two of a larger, 19-milestone execution plan covering CLI
+completion, local agent maturity, the control plane, the web platform,
+and enterprise/scale features through `v2.0.0` -- each milestone
+independently releasable and backward compatible with everything before
+it. That plan (objectives, packages, APIs, tests, docs, CI, acceptance
+criteria, rollback strategy, and release tag per milestone) was reviewed
+and approved outside this repository; only the milestones actually
+underway are reflected here, to avoid the roadmap drifting from real
+code -- see this file's own "dates intentionally omitted" convention
+above, applied the same way to the wider plan.
 
 ## v0.5.0 — Operability
 
