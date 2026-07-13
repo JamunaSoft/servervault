@@ -1,0 +1,163 @@
+name: Integration
+
+# Real restic / PostgreSQL integration tests (see docs/testing.md). These
+# run alongside the fast unit suite in go.yml, against temporary local
+# repositories and disposable databases only -- never production
+# credentials or state.
+
+on:
+  push:
+    branches:
+      - main
+      - go-rewrite
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/integration.yml"
+  pull_request:
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: integration-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  restic-integration:
+    name: Restic integration (required)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Install restic
+        run: sudo apt-get update && sudo apt-get install -y restic
+
+      - name: Verify restic is usable
+        # A broken install must fail this job, not silently show up as
+        # skipped tests later -- see docs/testing.md's "CI jobs that
+        # explicitly install prerequisites should fail, not skip".
+        run: restic version
+
+      - name: Run integration tests (PostgreSQL not installed -- those tests skip)
+        run: go test -tags=integration -race ./...
+
+  postgres-integration:
+    name: PostgreSQL integration
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+          check-latest: true
+
+      - name: Install PostgreSQL and Restic
+        # Restic is needed here too, alongside PostgreSQL: internal/
+        # restore's temp-database restore tests exercise the full
+        # restic-extract-then-postgres-restore pipeline, which needs
+        # both real binaries in the same job. restic-integration (above)
+        # only installs restic, so it only ever exercises restore's
+        # files-target tests -- this job is where temp-db restore tests
+        # actually run for real, not skip.
+        run: sudo apt-get update && sudo apt-get install -y postgresql postgresql-client restic
+
+      - name: Verify restic is usable
+        run: restic version
+
+      - name: Start PostgreSQL and wait until ready
+        # `apt-get install` does not guarantee a cluster is actually
+        # running afterward. Detect whatever version/cluster apt
+        # installed instead of hardcoding one, start anything that isn't
+        # already up, then poll pg_isready with a bounded timeout rather
+        # than assuming the socket exists immediately -- this is what was
+        # missing: createuser was failing because nothing was listening
+        # on /var/run/postgresql/.s.PGSQL.5432 yet.
+        run: |
+          set -euo pipefail
+
+          sudo systemctl start postgresql || true
+
+          pg_lsclusters
+          while read -r ver cluster _ status _; do
+            # --no-header should already exclude this, but a stray
+            # header row parsed as data would otherwise be misread as a
+            # (nonexistent) cluster named "Ver" -- cheap to guard against.
+            if [[ "$ver" == "Ver" ]]; then
+              continue
+            fi
+            if [[ "$status" != "online" ]]; then
+              echo "Starting PostgreSQL cluster ${ver} ${cluster} (status: ${status})"
+              sudo pg_ctlcluster "$ver" "$cluster" start
+            fi
+          done < <(pg_lsclusters --no-header)
+
+          for _ in {1..30}; do
+            if pg_isready -q; then
+              echo "PostgreSQL is ready"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "::error::PostgreSQL did not become ready within 30s"
+          exit 1
+
+      - name: PostgreSQL diagnostics (on failure)
+        if: failure()
+        run: |
+          echo "--- pg_lsclusters ---"
+          pg_lsclusters || true
+          echo "--- systemctl status postgresql ---"
+          systemctl status postgresql --no-pager || true
+          echo "--- recent PostgreSQL journal logs ---"
+          sudo journalctl -u postgresql --no-pager -n 200 || true
+
+      - name: Create a disposable, low-privilege test role
+        # A dedicated OS user + PostgreSQL role, not the postgres
+        # superuser: least privilege for CI, and it exercises peer auth
+        # (OS username -> matching DB role) the same way production does.
+        # Idempotent: safe to rerun if a previous attempt already created
+        # either the OS user or the database role.
+        run: |
+          set -euo pipefail
+
+          if id -u servervault_test >/dev/null 2>&1; then
+            echo "OS user servervault_test already exists, skipping useradd"
+          else
+            sudo useradd --system --no-create-home --shell /usr/sbin/nologin servervault_test
+          fi
+
+          role_exists="$(sudo -u postgres psql -Atc "SELECT 1 FROM pg_roles WHERE rolname = 'servervault_test'")"
+          if [[ "$role_exists" == "1" ]]; then
+            echo "PostgreSQL role servervault_test already exists, skipping createuser"
+          else
+            sudo -u postgres createuser --createdb servervault_test
+          fi
+
+      - name: Verify PostgreSQL connectivity as the test role
+        # Same reasoning as the restic verification step above: fail the
+        # job here if setup is broken, don't let it surface as a skip.
+        run: sudo -u servervault_test psql -Atc 'SELECT 1' postgres
+
+      - name: Run PostgreSQL-backed integration tests
+        env:
+          SERVERVAULT_TEST_POSTGRES_USER: servervault_test
+        run: go test -tags=integration -race ./internal/postgres/... ./internal/backup/... ./internal/restore/...

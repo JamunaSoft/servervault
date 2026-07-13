@@ -1,0 +1,25 @@
+# CODEOWNERS
+# See: https://docs.github.com/articles/about-code-owners
+#
+# These owners are requested for review on matching pull requests.
+# Order matters: later, more specific patterns override earlier ones.
+#
+# NOTE: an organization name alone (e.g. "@JamunaSoft") is not a valid
+# CODEOWNERS entry -- GitHub can only request review from a specific
+# user (@username) or a team within an org (@org/team-name). This file
+# uses @JamunaSoft/maintainers; create that team in the JamunaSoft org
+# (or swap in an actual maintainer's @username) before relying on it.
+
+* @JamunaSoft/maintainers
+
+/cmd/            @JamunaSoft/maintainers
+/internal/       @JamunaSoft/maintainers
+/bin/            @JamunaSoft/maintainers
+/install.sh      @JamunaSoft/maintainers
+/systemd/        @JamunaSoft/maintainers
+
+/.github/        @JamunaSoft/maintainers
+/docs/           @JamunaSoft/maintainers
+/configs/        @JamunaSoft/maintainers
+
+SECURITY.md      @JamunaSoft/maintainers
