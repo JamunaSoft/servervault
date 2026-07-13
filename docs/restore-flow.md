@@ -186,6 +186,29 @@ database configured in `postgres.database` has no code path that ever
 targets it for restore at all — `RestoreToTemp` only ever accepts the
 freshly generated temporary name.
 
+### PostgreSQL OS-user handoff permissions
+
+When `postgres.user` differs from the OS user running ServerVault,
+`RestoreToTemp`'s real restore (`pg_restore --dbname=...`) runs as that
+other user via non-interactive `sudo -u` (see `internal/postgres`'s
+package doc comment). That user needs to read the decompressed dump
+file `RestoreToTemp` itself just produced.
+
+`RestoreToTemp` never widens the restic-extraction directory (created by
+`internal/restore.Executor.executeTempDB` under `restore.staging_root`)
+to make this work — that directory's own ancestors aren't under
+ServerVault's control (an administrator-configured `staging_root`, or a
+test's own temp directory), so no permission set on it there could
+reliably guarantee traversal by another OS user. Instead, it decompresses
+into a dedicated, freshly created handoff directory under the system
+temp directory (`os.TempDir()`, e.g. `/tmp`), whose own permissions are
+a platform property, not caller-supplied configuration. Only when
+cross-user `sudo` is actually needed does it widen that one directory
+(`0701`, traverse-only, no listing) and that one file (`0604`,
+read-only) — never anything world-*writable*, and never any
+pre-existing or caller-supplied path. The handoff directory is removed
+on every exit path, including a mid-restore failure.
+
 ### Cancellation and cleanup
 
 Every exit path — success, any failure, or `ctx` cancellation —

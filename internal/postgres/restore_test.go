@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/JamunaSoft/servervault/internal/execx"
 )
 
 func TestValidDatabaseName(t *testing.T) {
@@ -207,6 +210,126 @@ func TestClient_RestoreToTemp_ValidationFailureNeverRestores(t *testing.T) {
 	// before RestoreToTemp gave up.
 	if len(runner.callsFor("pg_restore")) != 1 {
 		t.Errorf("expected exactly 1 pg_restore call before bailing out on validation failure, got %d", len(runner.callsFor("pg_restore")))
+	}
+}
+
+// TestClient_RestoreToTemp_HandoffPermissions pins the fix for
+// TestIntegration_Restore_TempDB_Success failing with "permission
+// denied": the sudo'd pg_restore call needs to read the decompressed
+// dump as a different OS user, so the handoff directory/file it lives in
+// must be widened -- but only when that privilege separation actually
+// applies, and never by touching dumpPath's own (deliberately
+// owner-only, "unreadable parent directory") directory.
+func TestClient_RestoreToTemp_HandoffPermissions(t *testing.T) {
+	current, err := currentUsername(t)
+	if err != nil {
+		t.Skipf("cannot determine current user: %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		user         string
+		wantDirMode  os.FileMode
+		wantFileMode os.FileMode
+	}{
+		{name: "same user as current process -- no widening", user: "", wantDirMode: 0o700, wantFileMode: 0o600},
+		{name: "different user -- widened for sudo'd pg_restore", user: "definitely-not-" + current, wantDirMode: handoffDirMode, wantFileMode: handoffFileMode},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// dumpPath's own directory: owner-only, like a production
+			// restic-extraction directory or a Go t.TempDir() -- and it
+			// must stay that way, since RestoreToTemp never asks the
+			// configured PostgreSQL OS user to read anything from it
+			// directly (only the current process ever decompresses
+			// dumpPath; see the handoffDir doc comment).
+			dir := t.TempDir()
+			if err := os.Chmod(dir, 0o700); err != nil {
+				t.Fatalf("chmod fixture dir: %v", err)
+			}
+			dumpPath := writeTempFile(t, dir, "fake-compressed-dump-content")
+
+			var handoffDir string
+			var gotDirMode, gotFileMode os.FileMode
+			runner := &fakeRunner{responses: map[string]fakeResponse{
+				"zstd": {stdout: "decompressed dump bytes", fn: func(opts execx.RunOptions) {
+					f, ok := opts.Stdout.(*os.File)
+					if !ok {
+						t.Fatalf("zstd stdout is not a *os.File: %T", opts.Stdout)
+					}
+					handoffDir = filepath.Dir(f.Name())
+					dirInfo, statErr := os.Stat(handoffDir)
+					if statErr != nil {
+						t.Fatalf("stat handoff dir: %v", statErr)
+					}
+					gotDirMode = dirInfo.Mode().Perm()
+					fileInfo, statErr := os.Stat(f.Name())
+					if statErr != nil {
+						t.Fatalf("stat handoff file: %v", statErr)
+					}
+					gotFileMode = fileInfo.Mode().Perm()
+				}},
+				"pg_restore": {},
+			}}
+			cfg := testConfig()
+			cfg.User = tt.user
+			c := New(runner, cfg)
+
+			if err := c.RestoreToTemp(context.Background(), dumpPath, "servervault_restore_abc"); err != nil {
+				t.Fatalf("RestoreToTemp: %v", err)
+			}
+
+			if gotDirMode != tt.wantDirMode {
+				t.Errorf("handoff directory mode = %s, want %s", gotDirMode, tt.wantDirMode)
+			}
+			if gotFileMode != tt.wantFileMode {
+				t.Errorf("handoff file mode = %s, want %s", gotFileMode, tt.wantFileMode)
+			}
+
+			// No permission widening outside the dedicated handoff
+			// directory.
+			dumpDirInfo, statErr := os.Stat(dir)
+			if statErr != nil {
+				t.Fatalf("stat dump dir: %v", statErr)
+			}
+			if perm := dumpDirInfo.Mode().Perm(); perm != 0o700 {
+				t.Errorf("dumpPath's own directory mode changed to %s, want unchanged 0700 -- RestoreToTemp must never widen a caller-supplied directory", perm)
+			}
+
+			// Cleanup after restore: the handoff directory must not
+			// outlive the call.
+			if handoffDir == "" {
+				t.Fatal("zstd fake was never invoked; test setup is broken")
+			}
+			if _, statErr := os.Stat(handoffDir); !os.IsNotExist(statErr) {
+				t.Errorf("handoff directory %q still exists after RestoreToTemp returned, want it removed", handoffDir)
+			}
+		})
+	}
+}
+
+// TestClient_RestoreToTemp_CleansUpHandoffDirOnEveryPath complements
+// TestClient_RestoreToTemp_CleansUpTempFileOnEveryPath (which covers
+// dumpPath's own directory): it checks the *new*, dedicated handoff
+// directory under os.TempDir() is also never leaked, including on a
+// restore failure.
+func TestClient_RestoreToTemp_CleansUpHandoffDirOnEveryPath(t *testing.T) {
+	before, _ := filepath.Glob(filepath.Join(os.TempDir(), pgHandoffDirPrefix+"*"))
+
+	dir := t.TempDir()
+	dumpPath := writeTempFile(t, dir, "content")
+
+	runner := &fakeRunner{responses: map[string]fakeResponse{
+		"zstd":       {stdout: "x"},
+		"pg_restore": {err: errors.New("boom")},
+	}}
+	c := New(runner, testConfig())
+	_ = c.RestoreToTemp(context.Background(), dumpPath, "servervault_restore_abc")
+
+	after, _ := filepath.Glob(filepath.Join(os.TempDir(), pgHandoffDirPrefix+"*"))
+	if len(after) != len(before) {
+		t.Errorf("handoff directory leaked after a failed RestoreToTemp: %d before, %d after (%v)", len(before), len(after), after)
 	}
 }
 
