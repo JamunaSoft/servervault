@@ -311,3 +311,78 @@ between sessions.
   deployment (an `agent.state_dir`-style config field) is left for
   v0.9.0's Local Agent milestone, since only a long-running daemon
   actually owns a persistent state directory today.
+
+## 2026-07-13 — v0.3.5 completion pass: `internal/backup` integration
+
+- Branch: `feature/core-infrastructure-v0.3.5` (same branch as the entry
+  above; a later, separate autonomous session focused specifically on
+  closing the one acceptance criterion that entry deferred).
+- What changed: `internal/backup.Engine.Run` now creates a job record
+  and advances it through the typed lifecycle with structured events at
+  each phase; `internal/job`'s transition graph gained one additive edge
+  (`verifying → backing_up`); `internal/job`/`internal/event`'s
+  `Store.Open` was fixed to create its parent directory; a new
+  `state_dir` config field; `servervault backup` wired up to actually
+  open and use the stores. Full detail (exact files, test results) is in
+  that session's final report, not duplicated here.
+- Decisions / rationale:
+  - **`New`'s signature grew a variadic `opts ...Option` parameter**
+    (`WithJobStore`, `WithEventSink`), not a new required parameter.
+    `backup_test.go`'s `testEngine` helper constructs `Engine` via a
+    direct struct literal (bypassing `New` entirely, to inject fake
+    `Dumper`/`Backer`) — a required-parameter signature change would
+    have left every existing test's engine with a nil job store anyway,
+    so the only real question was whether `New`'s *other* callers
+    (7 call sites total, only one of them production code) should have
+    to change. Variadic options meant none of them had to.
+  - **Job/event tracking is optional for backup, unconditionally
+    required for restore (`restore.NewExecutor` errors on a nil job
+    store).** Not an oversight — restore's cleanup-ownership tracking
+    (has *this* run created a temporary database it must drop on
+    failure?) depends on job/event infrastructure more directly than
+    backup's core safety properties do. Documented explicitly in
+    `internal/backup`'s package doc comment as a deliberate asymmetry,
+    not left for a reader to wonder about.
+  - **"Preparing" is entered before the lock acquisition attempt, not
+    after.** First attempt had it the other way (matching the original
+    code's structure more literally), and the new lock-busy test caught
+    a real bug immediately: `StatePending` has no direct edge to
+    `StateFailed` in the transition graph, so a lock-busy run's
+    `failJob` call silently failed to record anything, leaving the job
+    stuck showing `pending` forever. Two fixes were possible -- widen
+    the graph (add `pending → failed`), or move where "preparing"
+    starts. Chose the latter: it's arguably more semantically correct
+    anyway (attempting to acquire the lock *is* part of getting ready to
+    run, not a precondition to "getting ready"), and it didn't require
+    touching the transition graph a second time in the same session.
+  - **`Store.Open` not creating its parent directory was a real,
+    previously-undiscovered bug**, not a hypothetical: every existing
+    job/event test happened to call `t.TempDir()` and then `Open` a path
+    *inside* that already-existing directory, so nothing ever exercised
+    the "fresh, uncreated `state_dir`" case until this pass wired a real
+    CLI command up to one. Fixed in both packages identically, matching
+    `internal/lock.TryAcquire`'s already-established
+    create-parent-directory-if-missing contract -- and covered with a
+    dedicated regression test in each package directly, not left to be
+    caught only incidentally via the CLI test that surfaced it.
+  - **`Result.JobID` added (new, purely additive field)**, not because
+    the acceptance criteria asked for it directly, but because it was
+    the only clean way to make the new behavior *testable*: `job.Store`
+    has no "list all jobs" method (deliberately -- no consumer needs
+    one yet), so without a way to learn which job a given `Run` call
+    created, the new table-driven tests couldn't have asserted on job
+    state at all.
+  - **`state_dir` added to `config.Config` on this branch**, duplicating
+    what already exists on `feature/restore-v0.4.0-alpha.1` (added there
+    first, for the same reason). This is expected, not a mistake: the
+    two branches diverged before either had it, and each needed it for
+    its own real CLI wiring. Rebasing/merging order (core-infrastructure
+    first, since restore is stacked on top of it) means this will need
+    to be reconciled as a normal merge/rebase conflict when that happens
+    — trivial to resolve (the two additions are identical), flagged here
+    so it isn't a surprise.
+- Open questions / follow-ups: still not merged into `go-rewrite`. The
+  `state_dir` duplication across the two feature branches (above) will
+  surface as a conflict when `feature/restore-v0.4.0-alpha.1` is rebased
+  onto `go-rewrite` post-merge — expected, trivial, not a real conflict
+  in substance.

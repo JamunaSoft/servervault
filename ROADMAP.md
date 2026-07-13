@@ -82,11 +82,12 @@ design record (interfaces, error taxonomy, failure/cleanup matrix).
 
 ## v0.3.5 — Core infrastructure
 
-Status: complete.
+Status: complete, including the `internal/backup` integration originally
+deferred (see below).
 
 Shared foundation packages, not user-facing features -- see
 [`docs/core-infrastructure.md`](docs/core-infrastructure.md) for the full
-rationale. No CLI behavior changed in this milestone.
+rationale.
 
 - [x] `internal/job` -- typed job lifecycle state machine (pending →
       preparing → dumping/backing_up → verifying → completed/failed/
@@ -104,15 +105,19 @@ rationale. No CLI behavior changed in this milestone.
       safe metadata fields (no free-form map), SQLite-backed sink plus
       no-op/in-memory sinks for tests. See
       [`docs/events.md`](docs/events.md).
+- [x] `internal/backup.Engine` integration -- every `Run` call creates a
+      job record and advances it through the typed lifecycle, with
+      structured events emitted at each phase. Job/event tracking is
+      optional (`WithJobStore`/`WithEventSink`) and degrades safely
+      rather than failing a backup if unconfigured or if the store
+      itself has a problem at runtime -- see `internal/backup`'s package
+      doc comment. `servervault backup` wires this up against a new
+      `state_dir` config field.
 
 Deliberately out of scope for this milestone (see
 `docs/core-infrastructure.md`): SSH (no real caller until the control
 plane exists), a general storage abstraction (Restic already abstracts
-storage backends directly), and wiring `internal/job`/`internal/event`
-into the already-shipped `internal/backup.Engine` -- that retrofit is
-left for a future, explicitly-scoped change rather than done as a side
-effect of building the foundation packages; `internal/restore` (v0.4.0
-below) is this session's first real production consumer instead.
+storage backends directly).
 
 ## v0.4.0-alpha.1 — Safe restore
 
