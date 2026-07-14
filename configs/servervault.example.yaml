@@ -68,11 +68,24 @@ restore:
   # checks the backup lock's status before starting.
   lock_file: "/run/lock/servervault-restore.lock"
 
-# Retention policy applied by `servervault prune`.
+# Retention policy applied by `servervault prune`. See
+# docs/retention-flow.md for the full safety model.
 retention:
   keep_daily: 7
   keep_weekly: 4
   keep_monthly: 12
+  # Hard floor on remaining snapshots after a prune, independent of the
+  # keep_* policy above -- Validate enforces a minimum of 1 regardless
+  # of what's set here.
+  min_keep_total: 1
+  # Hard ceiling on how many snapshots one prune run may remove. Refuses
+  # the run with a clear error instead of silently deleting past this
+  # point -- catches a catastrophic keep_* misconfiguration.
+  max_delete_count: 50
+  # Prevents two prunes from running at once. A separate lock from
+  # backup.lock_file and restore.lock_file -- prune additionally checks
+  # both of those locks' status before starting.
+  lock_file: "/run/lock/servervault-prune.lock"
 
 # Host/tag identity used for snapshots. Defaults to the system hostname
 # if omitted.

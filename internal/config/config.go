@@ -84,11 +84,35 @@ type RestoreConfig struct {
 	LockFile string `yaml:"lock_file"`
 }
 
-// RetentionConfig configures how many snapshots `servervault prune` keeps.
+// RetentionConfig configures how many snapshots `servervault prune` keeps
+// and the safety limits that bound how much it is ever allowed to remove
+// in one run. See docs/retention-flow.md.
 type RetentionConfig struct {
 	KeepDaily   int `yaml:"keep_daily"`
 	KeepWeekly  int `yaml:"keep_weekly"`
 	KeepMonthly int `yaml:"keep_monthly"`
+	// MinKeepTotal is a hard floor on how many snapshots may remain
+	// after a prune, independent of the Keep* policy above -- defense
+	// in depth against a keep-policy that's technically non-zero but
+	// still resolves to "keep almost nothing" for an unusual snapshot
+	// history. Validate enforces a minimum of 1 regardless of the
+	// configured value: retention must never be able to prune a
+	// repository to zero snapshots.
+	MinKeepTotal int `yaml:"min_keep_total"`
+	// MaxDeleteCount is a hard ceiling on how many snapshots one prune
+	// run may remove. Its purpose is to turn a catastrophic
+	// misconfiguration (e.g. keep_daily accidentally set far too low)
+	// into a refused run with a clear error, rather than a silent mass
+	// deletion. There is no "unlimited" value -- Validate rejects 0 and
+	// negative values.
+	MaxDeleteCount int `yaml:"max_delete_count"`
+	// LockFile prevents concurrent prune runs (internal/lock), the same
+	// way Backup.LockFile and Restore.LockFile do for their own
+	// operations. A separate file from both: prune additionally checks
+	// the backup and restore locks' status before starting (see
+	// docs/retention-flow.md) rather than sharing a lock file with
+	// either.
+	LockFile string `yaml:"lock_file"`
 }
 
 // NotifyConfig configures optional failure notifications.
@@ -127,9 +151,12 @@ func Defaults() *Config {
 			LockFile:           "/run/lock/servervault-restore.lock",
 		},
 		Retention: RetentionConfig{
-			KeepDaily:   7,
-			KeepWeekly:  4,
-			KeepMonthly: 12,
+			KeepDaily:      7,
+			KeepWeekly:     4,
+			KeepMonthly:    12,
+			MinKeepTotal:   1,
+			MaxDeleteCount: 50,
+			LockFile:       "/run/lock/servervault-prune.lock",
 		},
 		StateDir: "/var/lib/servervault",
 	}

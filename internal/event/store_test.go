@@ -65,6 +65,27 @@ func TestStore_EmitAndByJob(t *testing.T) {
 	}
 }
 
+func TestStore_SnapshotsRemoved_RoundTrips(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	e, _ := New(TypeRetentionCompleted, "job-prune-1", SeverityInfo, Metadata{SnapshotsRemoved: 5})
+	if err := s.Emit(ctx, e); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+
+	got, err := s.ByJob(ctx, "job-prune-1")
+	if err != nil {
+		t.Fatalf("ByJob: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ByJob returned %d events, want 1", len(got))
+	}
+	if got[0].Metadata.SnapshotsRemoved != 5 {
+		t.Errorf("Metadata.SnapshotsRemoved = %d, want 5", got[0].Metadata.SnapshotsRemoved)
+	}
+}
+
 func TestStore_Emit_RequiresID(t *testing.T) {
 	s := openTestStore(t)
 	err := s.Emit(context.Background(), Event{Type: TypeJobCreated})

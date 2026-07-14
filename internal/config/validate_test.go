@@ -28,7 +28,10 @@ func validConfig() *Config {
 			LockFile:           "/run/lock/servervault-restore.lock",
 		},
 		Retention: RetentionConfig{
-			KeepDaily: 7,
+			KeepDaily:      7,
+			MinKeepTotal:   1,
+			MaxDeleteCount: 50,
+			LockFile:       "/run/lock/servervault-prune.lock",
 		},
 		StateDir: "/var/lib/servervault",
 	}
@@ -94,6 +97,36 @@ func TestValidate(t *testing.T) {
 				c.Retention.KeepMonthly = 0
 			},
 			wantField: "retention",
+		},
+		{
+			name:      "retention min_keep_total zero",
+			mutate:    func(c *Config) { c.Retention.MinKeepTotal = 0 },
+			wantField: "retention.min_keep_total",
+		},
+		{
+			name:      "retention min_keep_total negative",
+			mutate:    func(c *Config) { c.Retention.MinKeepTotal = -1 },
+			wantField: "retention.min_keep_total",
+		},
+		{
+			name:      "retention max_delete_count zero",
+			mutate:    func(c *Config) { c.Retention.MaxDeleteCount = 0 },
+			wantField: "retention.max_delete_count",
+		},
+		{
+			name:      "retention max_delete_count negative",
+			mutate:    func(c *Config) { c.Retention.MaxDeleteCount = -5 },
+			wantField: "retention.max_delete_count",
+		},
+		{
+			name:      "empty retention lock file",
+			mutate:    func(c *Config) { c.Retention.LockFile = "" },
+			wantField: "retention.lock_file",
+		},
+		{
+			name:      "relative retention lock file",
+			mutate:    func(c *Config) { c.Retention.LockFile = "servervault-prune.lock" },
+			wantField: "retention.lock_file",
 		},
 		{
 			name:      "postgres enabled with no database",

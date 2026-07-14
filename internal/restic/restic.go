@@ -9,19 +9,22 @@
 // (RESTIC_PASSWORD_FILE), never a command-line argument. restic reads the
 // file itself.
 //
-// Deliberately absent from this package: Init, Forget/Prune, and Unlock.
-// The "never delete a repository" rule is enforced structurally here —
+// Deliberately absent from this package: Init and Unlock. The "never
+// delete an entire repository" rule is enforced structurally here --
 // those capabilities don't exist in this package, not just left unused.
 //
-// Restore (see restore.go) is a deliberate, scoped exception, added in
-// v0.4.0-alpha.1: staging-only restore is itself one of ServerVault's
-// non-negotiable safety rules (CLAUDE.md), so the capability has to
-// exist somewhere. The "never restore over live data" guarantee is
-// enforced by internal/restore's Planner (which always generates a
-// fresh, non-live target directory or a fresh temporary database name),
-// not by this package refusing to restore at all — this package's
-// Restore method will write to whatever Target it is given, the same
-// way Backup will back up whatever Paths it is given.
+// Restore (see restore.go, v0.4.0-alpha.1) and Forget (see forget.go,
+// v0.5.0) are deliberate, scoped exceptions: staging-only restore and
+// policy-driven snapshot retention are themselves non-negotiable
+// ServerVault capabilities (CLAUDE.md), so they have to exist
+// somewhere. Neither method enforces ServerVault's own safety policy
+// itself -- Restore will write to whatever Target it is given, and
+// Forget will remove whatever Forget's keep-policy says to remove. The
+// "never restore over live data" guarantee lives in internal/restore's
+// Planner; the retention safety limits (minimum snapshot count, maximum
+// deletion count, repository health validation) live in
+// internal/retention's Planner/Executor. This package's job is
+// correctly invoking restic, not deciding what's safe.
 package restic
 
 import (

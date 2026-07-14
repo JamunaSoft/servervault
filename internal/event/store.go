@@ -48,6 +48,12 @@ CREATE INDEX idx_events_type ON events(type);
 CREATE INDEX idx_events_timestamp ON events(timestamp);
 `,
 	},
+	{
+		version: 2,
+		sql: `
+ALTER TABLE events ADD COLUMN snapshots_removed INTEGER NOT NULL DEFAULT 0;
+`,
+	},
 }
 
 // Store is a SQLite-backed, append-only Sink: Emit inserts, and nothing in
@@ -169,12 +175,12 @@ INSERT INTO events (
 	id, type, timestamp, job_id, host_ref, severity,
 	snapshot_id, database_name, policy_name, target_path,
 	bytes_total, files_new, files_changed, duration_ms,
-	error_category, error_summary
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+	error_category, error_summary, snapshots_removed
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
 		e.ID, string(e.Type), e.Timestamp.UTC().Format(time.RFC3339Nano), e.JobID, e.HostRef, string(e.Severity),
 		e.Metadata.SnapshotID, e.Metadata.DatabaseName, e.Metadata.PolicyName, e.Metadata.TargetPath,
 		e.Metadata.BytesTotal, e.Metadata.FilesNew, e.Metadata.FilesChanged, e.Metadata.DurationMS,
-		e.Metadata.ErrorCategory, e.Metadata.ErrorSummary,
+		e.Metadata.ErrorCategory, e.Metadata.ErrorSummary, e.Metadata.SnapshotsRemoved,
 	)
 	if err != nil {
 		return fmt.Errorf("event: emit %s: %w", e.ID, err)
@@ -188,7 +194,7 @@ func (s *Store) ByJob(ctx context.Context, jobID string) ([]Event, error) {
 SELECT id, type, timestamp, job_id, host_ref, severity,
        snapshot_id, database_name, policy_name, target_path,
        bytes_total, files_new, files_changed, duration_ms,
-       error_category, error_summary
+       error_category, error_summary, snapshots_removed
 FROM events WHERE job_id = ? ORDER BY timestamp ASC, id ASC;`, jobID)
 	if err != nil {
 		return nil, fmt.Errorf("event: list for job %s: %w", jobID, err)
@@ -202,7 +208,7 @@ FROM events WHERE job_id = ? ORDER BY timestamp ASC, id ASC;`, jobID)
 		if err := rows.Scan(&e.ID, &typ, &ts, &e.JobID, &e.HostRef, &sev,
 			&e.Metadata.SnapshotID, &e.Metadata.DatabaseName, &e.Metadata.PolicyName, &e.Metadata.TargetPath,
 			&e.Metadata.BytesTotal, &e.Metadata.FilesNew, &e.Metadata.FilesChanged, &e.Metadata.DurationMS,
-			&e.Metadata.ErrorCategory, &e.Metadata.ErrorSummary,
+			&e.Metadata.ErrorCategory, &e.Metadata.ErrorSummary, &e.Metadata.SnapshotsRemoved,
 		); err != nil {
 			return nil, fmt.Errorf("event: scan: %w", err)
 		}

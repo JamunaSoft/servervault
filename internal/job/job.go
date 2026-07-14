@@ -156,6 +156,9 @@ type Metadata struct {
 	BytesTotal   int64
 	FilesNew     int
 	FilesChanged int
+	// SnapshotsRemoved is the count of snapshots a retention (prune) job
+	// removed. Zero for every job type other than TypePrune.
+	SnapshotsRemoved int
 }
 
 // Job is one tracked unit of work.

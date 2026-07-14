@@ -41,4 +41,10 @@ CREATE INDEX idx_jobs_state ON jobs(state);
 CREATE INDEX idx_jobs_type ON jobs(type);
 `,
 	},
+	{
+		version: 2,
+		sql: `
+ALTER TABLE jobs ADD COLUMN snapshots_removed INTEGER NOT NULL DEFAULT 0;
+`,
+	},
 }

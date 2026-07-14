@@ -144,6 +144,27 @@ func validateRetention(r RetentionConfig) ValidationErrors {
 		})
 	}
 
+	// A hard floor of 1, regardless of the configured value: retention
+	// must never be able to prune a repository to zero snapshots. This
+	// is intentionally not configurable down to 0 -- see RetentionConfig's
+	// doc comment.
+	if r.MinKeepTotal < 1 {
+		errs = append(errs, ValidationError{"retention.min_keep_total", "must be at least 1"})
+	}
+
+	// No "unlimited" value on purpose -- see RetentionConfig's doc
+	// comment. A misconfigured 0 here would silently disable the one
+	// safety limit that catches a catastrophic keep-policy mistake.
+	if r.MaxDeleteCount <= 0 {
+		errs = append(errs, ValidationError{"retention.max_delete_count", "must be greater than 0"})
+	}
+
+	if r.LockFile == "" {
+		errs = append(errs, ValidationError{"retention.lock_file", "must not be empty"})
+	} else if !strings.HasPrefix(r.LockFile, "/") {
+		errs = append(errs, ValidationError{"retention.lock_file", "must be an absolute path"})
+	}
+
 	return errs
 }
 

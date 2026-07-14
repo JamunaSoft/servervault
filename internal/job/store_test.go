@@ -68,6 +68,35 @@ func TestStore_CreateAndGet(t *testing.T) {
 	}
 }
 
+func TestStore_SnapshotsRemoved_RoundTrips(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	j, err := s.Create(ctx, Job{Type: TypePrune})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	if _, err := s.Advance(ctx, j.ID, StatePreparing, AdvanceOptions{}); err != nil {
+		t.Fatalf("Advance to preparing: %v", err)
+	}
+	if _, err := s.Advance(ctx, j.ID, StateVerifying, AdvanceOptions{}); err != nil {
+		t.Fatalf("Advance to verifying: %v", err)
+	}
+	meta := Metadata{SnapshotsRemoved: 3}
+	if _, err := s.Advance(ctx, j.ID, StateCompleted, AdvanceOptions{Metadata: &meta}); err != nil {
+		t.Fatalf("Advance to completed: %v", err)
+	}
+
+	got, err := s.Get(ctx, j.ID)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Metadata.SnapshotsRemoved != 3 {
+		t.Errorf("Metadata.SnapshotsRemoved = %d, want 3", got.Metadata.SnapshotsRemoved)
+	}
+}
+
 func TestStore_Create_RequiresType(t *testing.T) {
 	s := openTestStore(t)
 	if _, err := s.Create(context.Background(), Job{}); err == nil {

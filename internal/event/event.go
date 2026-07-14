@@ -48,6 +48,10 @@ const (
 	TypeRestoreStarted   Type = "restore.started"
 	TypeRestoreCompleted Type = "restore.completed"
 
+	TypeRetentionPlanned   Type = "retention.planned"
+	TypeRetentionStarted   Type = "retention.started"
+	TypeRetentionCompleted Type = "retention.completed"
+
 	TypeJobFailed      Type = "job.failed"
 	TypeJobCancelled   Type = "job.cancelled"
 	TypeJobInterrupted Type = "job.interrupted"
@@ -81,6 +85,10 @@ type Metadata struct {
 	DurationMS    int64
 	ErrorCategory string
 	ErrorSummary  string
+	// SnapshotsRemoved is the count of snapshots a retention (prune) run
+	// removed, or -- for TypeRetentionPlanned -- would remove under
+	// --dry-run. Zero for every event type that isn't retention-related.
+	SnapshotsRemoved int
 }
 
 // Event is one structured, immutable record.

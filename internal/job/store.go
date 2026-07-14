@@ -173,12 +173,12 @@ INSERT INTO jobs (
 	id, type, state, created_at, updated_at,
 	error_category, error_summary,
 	snapshot_id, database_name, policy_name, target_path, host_tag,
-	bytes_total, files_new, files_changed, row_version
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);`,
+	bytes_total, files_new, files_changed, snapshots_removed, row_version
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1);`,
 		j.ID, string(j.Type), string(j.State), now, now,
 		string(j.ErrorCategory), j.ErrorSummary,
 		j.Metadata.SnapshotID, j.Metadata.DatabaseName, j.Metadata.PolicyName, j.Metadata.TargetPath, j.Metadata.HostTag,
-		j.Metadata.BytesTotal, j.Metadata.FilesNew, j.Metadata.FilesChanged,
+		j.Metadata.BytesTotal, j.Metadata.FilesNew, j.Metadata.FilesChanged, j.Metadata.SnapshotsRemoved,
 	)
 	if err != nil {
 		return Job{}, fmt.Errorf("job: create %s: %w", j.ID, err)
@@ -191,14 +191,14 @@ func (s *Store) Get(ctx context.Context, id string) (Job, error) {
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, type, state, error_category, error_summary,
        snapshot_id, database_name, policy_name, target_path, host_tag,
-       bytes_total, files_new, files_changed
+       bytes_total, files_new, files_changed, snapshots_removed
 FROM jobs WHERE id = ?;`, id)
 
 	var j Job
 	var jType, state, errCat string
 	err := row.Scan(&j.ID, &jType, &state, &errCat, &j.ErrorSummary,
 		&j.Metadata.SnapshotID, &j.Metadata.DatabaseName, &j.Metadata.PolicyName, &j.Metadata.TargetPath, &j.Metadata.HostTag,
-		&j.Metadata.BytesTotal, &j.Metadata.FilesNew, &j.Metadata.FilesChanged,
+		&j.Metadata.BytesTotal, &j.Metadata.FilesNew, &j.Metadata.FilesChanged, &j.Metadata.SnapshotsRemoved,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, ErrNotFound
@@ -278,9 +278,9 @@ func (s *Store) Advance(ctx context.Context, id string, to State, opts AdvanceOp
 		args = append(args, opts.ErrorSummary)
 	}
 	if opts.Metadata != nil {
-		query += `, snapshot_id = ?, database_name = ?, policy_name = ?, target_path = ?, host_tag = ?, bytes_total = ?, files_new = ?, files_changed = ?`
+		query += `, snapshot_id = ?, database_name = ?, policy_name = ?, target_path = ?, host_tag = ?, bytes_total = ?, files_new = ?, files_changed = ?, snapshots_removed = ?`
 		m := opts.Metadata
-		args = append(args, m.SnapshotID, m.DatabaseName, m.PolicyName, m.TargetPath, m.HostTag, m.BytesTotal, m.FilesNew, m.FilesChanged)
+		args = append(args, m.SnapshotID, m.DatabaseName, m.PolicyName, m.TargetPath, m.HostTag, m.BytesTotal, m.FilesNew, m.FilesChanged, m.SnapshotsRemoved)
 	}
 
 	query += ` WHERE id = ? AND row_version = ?;`
