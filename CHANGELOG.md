@@ -1,5 +1,54 @@
 # Changelog
 
+## Unreleased (go-rewrite, feature/retention-v0.5.0)
+
+Retention (part of v0.5.0 of the approved execution roadmap):
+`servervault prune`.
+
+- `internal/restic`: added `Forget` -- the second deliberate, scoped
+  write-capable addition after `Restore` (v0.4.0-alpha.1); `Init`/
+  `Unlock` remain entirely absent. Reports only kept/removed snapshot
+  IDs, parsed from restic's documented `--json` group format;
+  deliberately does not parse `--prune`'s byte-reclaimed statistics,
+  whose exact shape wasn't verified against a real restic binary in
+  this environment.
+- `internal/retention` (new package): `Planner.Plan` is read-only --
+  lists snapshots, validates repository health (`restic check`),
+  computes the removal set via a real `restic forget --dry-run`, then
+  validates it against two new configurable safety limits
+  (`retention.min_keep_total`, a hard floor Validate enforces at a
+  minimum of 1 regardless of configured value; `retention.
+  max_delete_count`, a hard ceiling with no "unlimited" value).
+  `Executor.Execute` acquires a dedicated retention lock, refuses to
+  run if a backup *or* a restore is in progress, recomputes and
+  reconfirms the entire plan immediately before the one destructive
+  call it ever makes (failing with a stale-plan error on any drift),
+  and records every prune in `internal/job` history and
+  `internal/event`.
+- `internal/job`/`internal/event`: additive schema migration
+  (`snapshots_removed` column) and a new `Metadata.SnapshotsRemoved`
+  field on both; `internal/event` gains
+  `TypeRetentionPlanned`/`Started`/`Completed`.
+- New config fields: `retention.min_keep_total`, `retention.
+  max_delete_count`, `retention.lock_file`.
+- CLI: `servervault prune [--dry-run] [--yes] [--output text|json]`.
+  Confirmation is required for a real (non-dry-run) prune, matching
+  `servervault restore`'s exact confirmation model. Unlike the shell
+  implementation (which runs `forget --prune` automatically at the end
+  of every backup), this is a deliberate, separate, explicit command --
+  see `docs/retention-flow.md`'s "Guiding rule" section.
+- Integration tests build their own fixture (three real snapshots via a
+  real `backup.Engine.Run`, landing in the same restic daily bucket for
+  a deterministic, non-zero removal count under `keep_daily=1`):
+  plan-never-writes, execute-removes-exactly-the-planned-set, both
+  safety limits refusing without touching the repository, lock
+  conflict, and cancellation. Runs in the existing `restic-integration`
+  CI job (no PostgreSQL dependency, no workflow changes needed).
+- Scope note: `internal/restic.Forget`'s byte-reclaimed statistics are
+  not reported anywhere in this milestone -- see the `internal/restic`
+  bullet above and `docs/retention-flow.md`'s "Known limitation"
+  section.
+
 ## Unreleased (go-rewrite, feature/restore-v0.4.0-alpha.1)
 
 Safe restore (v0.4.0-alpha.1 of the approved execution roadmap):

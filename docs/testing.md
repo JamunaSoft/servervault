@@ -142,8 +142,9 @@ make test-integration
 | End-to-end backup (Postgres on/off), cancellation, cleanup after every failure mode, concurrent-lock | `internal/backup/integration_test.go`, `internal/backup/concurrency_test.go` | both of the above together |
 | File restore success, dry-run (no writes), existing-destination rejection, invalid snapshot ID, cancellation | `internal/restore/integration_test.go` | `restic`, against a real snapshot created via a real `backup.Engine.Run` in the same test |
 | Temp-database restore success (including verifying the *live* database is untouched), temp-name-collision revalidation, missing-dump rejection | same | `restic` + `pg_dump`/`pg_restore`/`psql` together, the same combination `TestIntegration_Restore_TempDB_*` needs both installed for |
+| Plan never modifies the repository, prune removes exactly the planned snapshots, both safety limits (`min_keep_total`, `max_delete_count`) refuse without touching the repository, lock conflict, cancellation | `internal/retention/integration_test.go` | `restic` only, against real snapshots created via a real `backup.Engine.Run` in the same test -- runs in the `restic-integration` CI job (no PostgreSQL dependency) |
 
-Every restore integration test builds its own fixture snapshot by
+Every restore/retention integration test builds its own fixture snapshot(s) by
 running a real `backup.Engine.Run` first (see `createRealSnapshot` in
 `internal/restore/integration_test.go`), rather than hand-constructing a
 repository layout — this means the fixture is byte-for-byte what
@@ -252,7 +253,9 @@ pull requests — see the CI section below. Two reasons:
     `TestIntegration_Restore_TempDB_*`) skip here by the same
     local-developer skip logic described above — deliberate, not a gap:
     it's what keeps this job requiring only `restic`. File-target restore
-    tests (`TestIntegration_Restore_Files_*`) do run here.
+    tests (`TestIntegration_Restore_Files_*`) and all of
+    `internal/retention`'s integration tests (`TestIntegration_Retention_*`,
+    v0.5.0 — no PostgreSQL dependency) do run here.
   - **`postgres-integration`**: `sudo apt-get install -y postgresql
     postgresql-client restic` (restic is installed here too, as of
     v0.4.0-alpha.1 — `internal/restore`'s temp-database restore tests

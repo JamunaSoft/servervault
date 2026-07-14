@@ -87,6 +87,11 @@ changes (structural/shape validation only):
 - the password file path is set and absolute
 - backup paths are set and absolute
 - retention values are non-negative and not all zero
+- `retention.min_keep_total` is at least 1 (a hard floor — retention can
+  never be configured to prune to zero snapshots), `retention.
+  max_delete_count` is greater than 0 (no "unlimited" value), and
+  `retention.lock_file` is set and absolute — see
+  [`docs/retention-flow.md`](retention-flow.md)
 - PostgreSQL connection settings are well-formed
 - restore destinations don't overlap a live backup path, and the temp
   database prefix doesn't equal the live database name (see

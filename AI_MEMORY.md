@@ -477,3 +477,106 @@ between sessions.
   in the `postgres-integration` job) -- the first real CI run against
   this branch is still the actual verification of that, same caveat as
   every prior entry.
+  **Superseded 2026-07-15: two more fix commits landed on this branch
+  (snapshot-ID validation, PostgreSQL restore-handoff permissions --
+  both caught by real CI runs), then it was merged into `go-rewrite`
+  via PR #5, after a detour where an earlier PR (#2) briefly
+  squash-merged it into `main` by mistake (wrong base branch); PR #4
+  reverted that from `main`. See the "v0.5.0 retention" entry below for
+  the branch that picked up from this corrected state.**
+
+## 2026-07-15 — v0.5.0 retention engine
+
+- Branch: `feature/retention-v0.5.0` (off `go-rewrite` at `2b7e276`,
+  which carries v0.2.0-alpha through v0.4.0-alpha.1 plus the platform
+  architecture design documents added in a prior session; not merged).
+- What changed: implemented `internal/retention` (`Planner`/`Executor`,
+  mirroring `internal/restore`'s architecture), `internal/restic.Forget`
+  (the second scoped write-capable addition after `Restore`), new
+  `RetentionConfig` safety fields (`min_keep_total`, `max_delete_count`,
+  `lock_file`) with validation, additive `internal/job`/`internal/event`
+  schema changes (`snapshots_removed`), `servervault prune`, a full
+  unit test suite (16 tests, race-clean, 82.8% coverage) and a real-restic
+  integration suite (6 tests, build-tagged, confirmed skipping cleanly
+  without a restic binary locally), and `docs/retention-flow.md`. Full
+  design record for the packages/interfaces/safety-limit reasoning is in
+  this session's own final report, not duplicated here.
+- Decisions / rationale:
+  - **Retention execution model deliberately does not match the shell
+    implementation's**, even though the *policy* does. The shell
+    (`bin/servervault-backup`) runs `restic forget --prune`
+    automatically at the end of every backup, with no confirmation and
+    no dry-run. The Go engine makes pruning a separate, explicit
+    command requiring confirmation (or `--yes`) outside `--dry-run` --
+    the same choice `internal/restore` already made relative to the
+    shell's interactive-menu restore tool, and a direct consequence of
+    this milestone's own explicit safety requirements (dry-run
+    support, explicit destructive confirmation). `ROADMAP.md`'s
+    "parity with the shell implementation's default retention and
+    safety behavior" bullet is satisfied for policy (keep_daily/
+    weekly/monthly, host/tag scoping) but intentionally not for
+    execution model -- documented explicitly rather than silently
+    reinterpreted.
+  - **`ForgetSummary` does not report bytes reclaimed.** `restic
+    forget --prune --json`'s pruning statistics were not verified
+    against a real restic binary in this environment (none installed,
+    same constraint noted in the v0.4.0-alpha.1 entries above). Given
+    a real bug earlier in this project's history came from guessing at
+    unverified restic JSON/fallback behavior (`restic stats`'s
+    all-snapshots fallback, see the "v0.4.0-alpha.1... fix" entries),
+    this was treated as a hard stop: report only what's parsed with
+    confidence (kept/removed snapshot IDs, from restic's stable,
+    well-documented group format used identically for `forget` and
+    `forget --prune`), omit the rest rather than guess. Flagged as a
+    known limitation in `docs/retention-flow.md`, not silently
+    dropped.
+  - **Retention checks both the backup lock and the restore lock**
+    before proceeding, unlike `internal/restore` (which only checks
+    the backup lock). Deliberately more conservative: forget/prune is
+    the most destructive of the three operations, and the task brief
+    driving this session explicitly asked for the safer choice
+    whenever destructive behavior was uncertain.
+  - **Execute revalidates by recomputing the entire plan from
+    scratch** (list → check → dry-run forget → limit validation)
+    immediately before the real `forget --prune` call, rather than a
+    cheaper targeted re-check the way `internal/restore`'s
+    revalidation does (`os.Stat`/`DatabaseExists` are cheap and
+    narrow; there's no equivalently narrow check for "has the removal
+    set changed"). A revalidated removal set that disagrees with the
+    confirmed one fails with `*ErrPlanStale` rather than proceeding.
+  - **`job.Metadata`/`event.Metadata` gained a new named field**
+    (`SnapshotsRemoved`), not a generic map -- consistent with both
+    packages' own documented extension policy ("add a named field
+    here, do not add a generic map"). This is a different call than
+    the wider platform-architecture design pass's "job/event model
+    must remain unchanged" constraint from an earlier session; that
+    constraint was specific to the control-plane's multi-server
+    concerns and doesn't forbid this package's own sanctioned
+    extension mechanism for genuinely new, real, in-scope work.
+  - **`ROADMAP.md`'s v0.5.0 heading ("Operability") was not renamed or
+    reordered** to a hypothetical "v0.5.0 Retention" despite an earlier
+    (out-of-session) planning message describing it that way -- the
+    task driving this work explicitly forbade changing roadmap
+    ordering. Retention landed as new checked-off bullets under the
+    existing "Operability" heading instead; `status`/`notify`/`health`
+    remain that milestone's unstarted remainder.
+  - **No CI workflow changes.** `restic-integration`'s existing
+    `go test -tags=integration -race ./...` already wildcard-covers
+    `internal/retention` automatically, and the new integration suite
+    has no PostgreSQL dependency -- confirmed by re-reading
+    `.github/workflows/integration.yml` before assuming a change was
+    needed.
+  - **`internal/doctor` was deliberately left unchanged.** It checks
+    only the backup lock's state today (not restore's), so adding a
+    retention-lock check without also adding restore's would be an
+    inconsistent, scope-creeping addition -- noted as remaining
+    technical debt rather than done partially.
+- Open questions / follow-ups: not yet opened as (or merged via) a PR --
+  a human decision. No restic binary was available in this environment,
+  so the entire integration suite (and the manual CLI verification done
+  in this session) only proves correctness up to the restic invocation
+  boundary; the first real CI run (`restic-integration`) is the actual
+  verification of the restic-facing code paths, same caveat pattern as
+  every prior milestone in this log. `internal/doctor` doesn't yet know
+  about `retention.lock_file` (see above). Bytes-reclaimed reporting
+  remains unimplemented pending real-restic verification.

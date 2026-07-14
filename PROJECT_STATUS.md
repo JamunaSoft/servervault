@@ -7,13 +7,18 @@
 - Development branch: `go-rewrite`
 
 ## Current commits
-- `main`: PostgreSQL verification fix commit `698ae03`
-- `go-rewrite`: `49d36c3` — includes v0.3.5 (core infrastructure +
-  `internal/backup` job/event integration), merged via PR #1. Tag
-  `v0.3.0-alpha` (predates this merge) is published as a pre-release.
-- `feature/restore-v0.4.0-alpha.1`: rebased onto the `go-rewrite` tip
-  above; carries both v0.3.5 and v0.4.0-alpha.1's work in one linear
-  history. Not yet merged into `go-rewrite`.
+- `main`: `149ab15` — stable shell implementation plus the v0.2.0-alpha
+  Go foundation only. A PR (#2) briefly squash-merged the entire Go
+  rewrite (including the not-yet-reviewed restore engine) into `main`
+  by mistake (wrong base branch); PR #4 reverted it back out. Tag
+  `v0.3.0-alpha` is published as a pre-release.
+- `go-rewrite`: `2b7e276` — v0.2.0-alpha through v0.4.0-alpha.1 (safe
+  restore, merged via PR #5) plus the platform architecture design
+  documents (PR #6). This is the branch the mistaken `main` merge was
+  ultimately, correctly reconciled into.
+- `feature/retention-v0.5.0`: branched off the `go-rewrite` tip above;
+  carries `internal/retention` (v0.5.0's retention engine) plus
+  `servervault prune`. Not yet merged into `go-rewrite`.
 
 ## Production deployment already tested
 - Host: `srv.eea.bd`
@@ -76,46 +81,46 @@ rm -f "$TMP_DUMP"
 - Module: `github.com/JamunaSoft/servervault`
 - Cobra: `v1.8.1`
 - Working commands on `go-rewrite`: `servervault version`, `doctor`,
-  `config validate`, `backup` (now with job/event tracking).
-- Additionally working on `feature/restore-v0.4.0-alpha.1` (rebased onto
-  `go-rewrite`, not yet merged): `snapshots`, `restore`.
+  `config validate`, `backup`, `snapshots`, `restore` (all with
+  job/event tracking where applicable).
+- Additionally working on `feature/retention-v0.5.0` (branched off
+  `go-rewrite`, not yet merged): `prune`.
 - v0.2.0-alpha (CLI foundation), v0.3.0 Phase A (Restic+PostgreSQL
-  backup engine), and v0.3.5 (core infrastructure + backup integration)
-  are all complete and merged into `go-rewrite` — see `ROADMAP.md` for
-  the full, current package-by-package checklist.
+  backup engine), v0.3.5 (core infrastructure + backup integration),
+  and v0.4.0-alpha.1 (safe restore) are all complete and merged into
+  `go-rewrite` — see `ROADMAP.md` for the full, current
+  package-by-package checklist.
 
 ## Current milestone
 
 ```text
 ✅ v0.3.0-alpha tag pushed; published as a pre-release
-✅ v0.3.5 (core infrastructure: internal/job, internal/scheduler,
-   internal/event, internal/backup integration) merged into go-rewrite
-   via PR #1
+✅ v0.3.5 (core infrastructure) merged into go-rewrite via PR #1
 ✅ main branch protection enabled
-✅ v0.4.0-alpha.1 (safe restore) implementation complete on
-   feature/restore-v0.4.0-alpha.1, rebased onto the current go-rewrite
-   tip, builds and tests clean -- awaiting PR review and CI
+✅ v0.4.0-alpha.1 (safe restore) merged into go-rewrite via PR #5,
+   after a detour: PR #2 briefly merged it into main by mistake
+   (wrong base branch), corrected by PR #4 (revert on main) and PR #5
+   (proper merge into go-rewrite) -- see AI_MEMORY.md
+✅ Platform architecture design documents (control-plane-architecture,
+   agent-architecture, api-design, data-model, extensibility) merged
+   into go-rewrite via PR #6
+🚧 v0.5.0 retention (internal/retention, servervault prune) implemented
+   on feature/retention-v0.5.0, builds and tests clean locally --
+   awaiting PR review and CI. v0.5.0's remaining scope (status,
+   notify, health) is not started.
 
-Status: v0.4.0-alpha.1 awaiting PR review and CI
-
-Current branch: go-rewrite has v0.3.5; feature/restore-v0.4.0-alpha.1
-carries v0.4.0-alpha.1 on top of it, not yet merged -- see AI_MEMORY.md
-for the sessions that produced both, including the rebase conflict
-found and resolved after the fact (a prior partial conflict-resolution
-commit left literal git conflict markers in internal/config/config.go
-and internal/config/validate_test.go, breaking the build; fixed and
-reverified).
+Status: v0.5.0 retention awaiting PR review and CI; v0.5.0 otherwise
+not started.
 
 Blocked by:
-- feature/restore-v0.4.0-alpha.1 PR review and merge into go-rewrite
-- First real CI run against this exact rebased commit -- in particular
-  internal/restore's integration tests against real restic/PostgreSQL
-  in postgres-integration, not yet observed
-- 2-3 more consecutive green postgres-integration CI runs before it's
-  promoted to a required branch-protection check
+- feature/retention-v0.5.0 PR review and merge into go-rewrite
+- First real CI run against this exact commit -- in particular
+  internal/retention's integration tests against real restic in
+  restic-integration, not yet observed (no restic binary available in
+  the environment this branch was developed in)
 ```
 
-Do not build MySQL/retention/health/notifications in Go, and do not merge
+Do not build MySQL/health/notifications in Go, and do not merge
 `go-rewrite` into `main`, until the items above are closed and the
 relevant milestone's design has been reviewed — see `ROADMAP.md` and
 `AI_MEMORY.md`.

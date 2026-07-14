@@ -121,7 +121,7 @@ storage backends directly).
 
 ## v0.4.0-alpha.1 — Safe restore
 
-Status: complete on `feature/restore-v0.4.0-alpha.1`, pending review/merge.
+Status: complete, merged into `go-rewrite`.
 
 - [x] `internal/restic` -- added `Restore`, `Stats`, `List` (the one
       deliberate, scoped addition beyond Phase A; `Init`/`Forget`/
@@ -143,9 +143,9 @@ Status: complete on `feature/restore-v0.4.0-alpha.1`, pending review/merge.
       including cancellation and revalidation-triggered rejection) --
       see [`docs/testing.md`](docs/testing.md)
 
-Retention (`internal/retention`, `servervault prune`) and
-`servervault verify` move to their own later milestones -- see the
-approved execution roadmap below.
+Retention (`internal/retention`, `servervault prune`) landed under
+v0.5.0 below. `servervault verify` moves to its own later milestone --
+see the approved execution roadmap below.
 
 ## Beyond v0.4.0: the approved execution roadmap
 
@@ -163,11 +163,32 @@ above, applied the same way to the wider plan.
 
 ## v0.5.0 — Operability
 
+- [x] `internal/retention` -- `Planner` (read-only: lists snapshots,
+      validates repository health via `restic check`, computes the
+      removal set via a real `restic forget --dry-run`, validates it
+      against two configurable safety limits -- `retention.
+      min_keep_total`, a hard floor on remaining snapshots, and
+      `retention.max_delete_count`, a hard ceiling on removals) and
+      `Executor` (dedicated retention lock, refuses to run alongside a
+      backup *or* a restore, recomputes and reconfirms the entire plan
+      immediately before the one destructive call it ever makes, every
+      prune recorded in `internal/job` history and `internal/event`).
+      See [`docs/retention-flow.md`](docs/retention-flow.md).
+- [x] `internal/restic` -- added `Forget` (the second deliberate,
+      scoped write-capable addition after `Restore`; `Init`/`Unlock`
+      remain entirely absent)
+- [x] `servervault prune [--dry-run] [--yes] [--output text|json]`
+- [x] Policy parity with the shell implementation's default retention
+      behavior (`keep_daily`/`keep_weekly`/`keep_monthly`, host/tag
+      scoping) -- **not** execution-model parity: the Go engine makes
+      retention an explicit, confirmable command rather than an
+      automatic step at the end of every backup, matching this
+      milestone's own stricter safety requirements. See
+      [`docs/retention-flow.md`](docs/retention-flow.md)'s "Guiding
+      rule" section for the full rationale.
 - [ ] `servervault status`
 - [ ] `internal/notify` (optional failure notifications)
 - [ ] `internal/health` checks wired into `doctor` and `status`
-- [ ] Parity with the shell implementation's default retention and
-      safety behavior
 
 ## v1.0.0 — Go implementation replaces shell as the primary path
 

@@ -40,7 +40,13 @@ cmd/servervault  --(wires)-->  internal/cli
              internal/{restic,postgres,backup,lock}          (backup engine, v0.3.0 Phase A)
                                     |
                                     v
-             internal/{restore,retention,health,notify}      (later milestones — not started)
+             internal/{job,scheduler,event}                  (core infrastructure, v0.3.5)
+                                    |
+                                    v
+             internal/{restore,retention}                    (v0.4.0-alpha.1, v0.5.0)
+                                    |
+                                    v
+             internal/{health,notify}                        (later milestones — not started)
 ```
 
 Design rules that shape the package boundaries:
