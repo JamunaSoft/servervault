@@ -9,10 +9,19 @@
 // (RESTIC_PASSWORD_FILE), never a command-line argument. restic reads the
 // file itself.
 //
-// Deliberately absent from this package: Init, Forget/Prune, Restore, and
-// Unlock. The "never delete a repository" and "never restore over live
-// data" rules are enforced structurally here — those capabilities don't
-// exist in this package, not just left unused.
+// Deliberately absent from this package: Init, Forget/Prune, and Unlock.
+// The "never delete a repository" rule is enforced structurally here —
+// those capabilities don't exist in this package, not just left unused.
+//
+// Restore (see restore.go) is a deliberate, scoped exception, added in
+// v0.4.0-alpha.1: staging-only restore is itself one of ServerVault's
+// non-negotiable safety rules (CLAUDE.md), so the capability has to
+// exist somewhere. The "never restore over live data" guarantee is
+// enforced by internal/restore's Planner (which always generates a
+// fresh, non-live target directory or a fresh temporary database name),
+// not by this package refusing to restore at all — this package's
+// Restore method will write to whatever Target it is given, the same
+// way Backup will back up whatever Paths it is given.
 package restic
 
 import (

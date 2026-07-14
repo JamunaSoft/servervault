@@ -25,6 +25,7 @@ func validConfig() *Config {
 		Restore: RestoreConfig{
 			StagingRoot:        "/var/restore/servervault",
 			TempDatabasePrefix: "servervault_restore_",
+			LockFile:           "/run/lock/servervault-restore.lock",
 		},
 		Retention: RetentionConfig{
 			KeepDaily: 7,
@@ -155,6 +156,16 @@ func TestValidate(t *testing.T) {
 			name:      "temp database prefix equals live database",
 			mutate:    func(c *Config) { c.Restore.TempDatabasePrefix = c.Postgres.Database },
 			wantField: "restore.temp_database_prefix",
+		},
+		{
+			name:      "empty restore lock file",
+			mutate:    func(c *Config) { c.Restore.LockFile = "" },
+			wantField: "restore.lock_file",
+		},
+		{
+			name:      "relative restore lock file",
+			mutate:    func(c *Config) { c.Restore.LockFile = "servervault-restore.lock" },
+			wantField: "restore.lock_file",
 		},
 		{
 			name:      "empty state dir",

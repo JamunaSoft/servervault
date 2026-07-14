@@ -203,6 +203,12 @@ func validateRestore(r RestoreConfig, pg PostgresConfig, b BackupConfig) Validat
 		})
 	}
 
+	if r.LockFile == "" {
+		errs = append(errs, ValidationError{"restore.lock_file", "must not be empty"})
+	} else if !strings.HasPrefix(r.LockFile, "/") {
+		errs = append(errs, ValidationError{"restore.lock_file", "must be an absolute path"})
+	}
+
 	return errs
 }
 
