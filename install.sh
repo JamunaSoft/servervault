@@ -4,8 +4,8 @@ set -Eeuo pipefail
 apt-get update
 apt-get install -y restic zstd postgresql-client openssh-client sudo
 install -d -m 700 /etc/servervault /root/.config/restic /var/backups/servervault /var/restore/servervault
-install -m 600 configs/servervault.env.example /etc/servervault/servervault.env
-install -m 600 configs/excludes.txt /etc/servervault/excludes.txt
+install -m 600 config/servervault.env.example /etc/servervault/servervault.env
+install -m 600 config/excludes.txt /etc/servervault/excludes.txt
 install -m 700 bin/servervault-backup /usr/local/sbin/servervault-backup
 install -m 700 bin/servervault-verify /usr/local/sbin/servervault-verify
 install -m 700 bin/servervault-restore /usr/local/sbin/servervault-restore
