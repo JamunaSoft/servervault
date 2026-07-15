@@ -17,8 +17,13 @@
   documents (PR #6). This is the branch the mistaken `main` merge was
   ultimately, correctly reconciled into.
 - `feature/retention-v0.5.0`: branched off the `go-rewrite` tip above;
-  carries `internal/retention` (v0.5.0's retention engine) plus
-  `servervault prune`. Not yet merged into `go-rewrite`.
+  carries `internal/retention` (v0.5.0's retention engine, `servervault
+  prune`) and `internal/notify` (v0.5.0's failure notifications,
+  wrapping the existing event store rather than changing
+  backup/restore/retention). Not yet merged into `go-rewrite`; no PR
+  opened yet (no `gh` CLI or GitHub token available in the environment
+  this was developed in -- see
+  `https://github.com/JamunaSoft/servervault/pull/new/feature/retention-v0.5.0`).
 
 ## Production deployment already tested
 - Host: `srv.eea.bd`
@@ -84,7 +89,9 @@ rm -f "$TMP_DUMP"
   `config validate`, `backup`, `snapshots`, `restore` (all with
   job/event tracking where applicable).
 - Additionally working on `feature/retention-v0.5.0` (branched off
-  `go-rewrite`, not yet merged): `prune`.
+  `go-rewrite`, not yet merged): `prune`, plus notifications (no new
+  command -- wired into `backup`/`restore`/`prune` via `notify.enabled`
+  in config).
 - v0.2.0-alpha (CLI foundation), v0.3.0 Phase A (Restic+PostgreSQL
   backup engine), v0.3.5 (core infrastructure + backup integration),
   and v0.4.0-alpha.1 (safe restore) are all complete and merged into
@@ -104,16 +111,19 @@ rm -f "$TMP_DUMP"
 ✅ Platform architecture design documents (control-plane-architecture,
    agent-architecture, api-design, data-model, extensibility) merged
    into go-rewrite via PR #6
-🚧 v0.5.0 retention (internal/retention, servervault prune) implemented
-   on feature/retention-v0.5.0, builds and tests clean locally --
-   awaiting PR review and CI. v0.5.0's remaining scope (status,
-   notify, health) is not started.
+🚧 v0.5.0 retention (internal/retention, servervault prune) and
+   notifications (internal/notify) implemented on
+   feature/retention-v0.5.0, builds and tests clean locally -- awaiting
+   PR review and CI. v0.5.0's remaining scope (status, health) is not
+   started.
 
-Status: v0.5.0 retention awaiting PR review and CI; v0.5.0 otherwise
-not started.
+Status: v0.5.0 retention + notify awaiting PR review and CI; status/
+health not started.
 
 Blocked by:
-- feature/retention-v0.5.0 PR review and merge into go-rewrite
+- feature/retention-v0.5.0 PR review and merge into go-rewrite -- no PR
+  opened yet (no gh CLI/token available in this environment; direct
+  link: github.com/JamunaSoft/servervault/pull/new/feature/retention-v0.5.0)
 - First real CI run against this exact commit -- in particular
   internal/retention's integration tests against real restic in
   restic-integration, not yet observed (no restic binary available in

@@ -2,6 +2,31 @@
 
 ## Unreleased (go-rewrite, feature/retention-v0.5.0)
 
+Notifications, added in the same branch after retention landed (still
+part of v0.5.0 of the approved execution roadmap):
+
+- `internal/notify` (new package): `Notifier` interface, exactly
+  matching the shape `docs/extensibility.md` sketched ahead of time.
+  `WebhookNotifier` is the first-party implementation -- POSTs a small,
+  secret-free JSON payload (fields copied directly from
+  `event.Event`/`event.Metadata`'s own closed field set) to
+  `notify.webhook_url`, bounded by a 10s timeout. `EventSink` wraps any
+  existing `event.Sink`, notifying only on `event.TypeJobFailed` --
+  never cancellation or interruption -- with zero changes to
+  `internal/backup`, `internal/restore`, or `internal/retention`,
+  which stay unaware it exists.
+- `internal/cli`: `wrapEventSinkWithNotify` (shared by `backup`,
+  `restore`, `prune`) wraps each command's real event store when
+  `notify.enabled` is true.
+- `config.Validate`: `notify.webhook_url` must be set and be an
+  `http://`/`https://` URL when `notify.enabled` is true; no check when
+  disabled.
+- Tests: 10 unit tests in `internal/notify` (race-clean, 93.3%
+  coverage) plus two CLI-level tests proving the wiring actually
+  triggers a real HTTP POST end to end (and that it doesn't when
+  disabled), using a real `httptest.Server`.
+- Docs: `docs/notify.md`.
+
 Retention (part of v0.5.0 of the approved execution roadmap):
 `servervault prune`.
 

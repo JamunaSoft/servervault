@@ -580,3 +580,58 @@ between sessions.
   every prior milestone in this log. `internal/doctor` doesn't yet know
   about `retention.lock_file` (see above). Bytes-reclaimed reporting
   remains unimplemented pending real-restic verification.
+  **Continued same day: `internal/notify` (v0.5.0's other unstarted
+  item) landed on this same branch immediately after -- see below.**
+
+### Same session, continued: `internal/notify`
+
+- Branch: `feature/retention-v0.5.0` (same branch, immediately
+  following the retention work above -- the user asked to keep working
+  through v0.5.0's remaining scope after retention was done).
+- What changed: implemented `internal/notify` (`Notifier` interface,
+  `WebhookNotifier` first-party implementation, `EventSink` wrapping
+  any `event.Sink`), `NotifyConfig` validation (`webhook_url` required
+  and must be `http(s)://` only when `enabled: true`), CLI wiring
+  (`internal/cli/notify.go`'s `wrapEventSinkWithNotify`, called from
+  `backup`/`restore`/`prune`'s existing event-store setup), a 10-test
+  unit suite (93.3% coverage) plus two CLI-level tests proving the
+  wiring itself works end to end against a real `httptest.Server`, and
+  `docs/notify.md`.
+- Decisions / rationale:
+  - **Zero changes to `internal/backup`, `internal/restore`, or
+    `internal/retention`.** This was the point of designing
+    `Notifier`/`EventSink` as a wrapper around `event.Sink` rather than
+    a new option each engine/executor would need to accept -- all
+    three already accept an `event.Sink` interface value, so wrapping
+    the concrete `*event.Store` at the CLI layer before handing it off
+    was sufficient. Exactly the shape `docs/extensibility.md` (written
+    in an earlier session, before any of `internal/notify` existed)
+    committed to in advance.
+  - **Notifies only on `event.TypeJobFailed`**, not
+    `TypeJobCancelled` or `TypeJobInterrupted` -- matches
+    `NotifyConfig`'s own doc comment ("optional failure
+    notifications") literally rather than notifying on every terminal
+    non-success state.
+  - **A notification failure never fails `Emit`, and an `Emit`
+    (underlying-sink) failure never suppresses the notification** --
+    verified by dedicated tests in both directions
+    (`TestEventSink_Emit_NotifierFailureDoesNotFailEmit`,
+    `TestEventSink_Emit_UnderlyingFailureStillNotifies`). These are
+    independent concerns: whether the event persisted locally and
+    whether the operator got alerted about the failure it describes.
+  - **`wrapEventSinkWithNotify` is one shared helper in
+    `internal/cli/notify.go`**, not three copies -- backup/restore/
+    prune's CLI wiring each already opens a real event store and passes
+    it straight to `WithEventSink`/`NewExecutor`; the helper is a
+    one-line insertion at each call site.
+  - **No bytes/attachment/retry logic in `WebhookNotifier`.** A single
+    POST with a 10s timeout; no exponential backoff, no delivery
+    tracking. `NotifyConfig`'s scope is "optional failure
+    notifications," not a delivery-guaranteed alerting pipeline --
+    revisit only if a real operational need for retries surfaces.
+  - **`ROADMAP.md`'s v0.5.0 `internal/notify` bullet checked off**,
+    same "don't rename/reorder the heading" discipline as the
+    retention entry above.
+- Open questions / follow-ups: same PR/CI caveats as retention above --
+  not yet opened as a PR, no real CI run observed. `status` and
+  `internal/health` remain v0.5.0's only unstarted items after this.

@@ -187,7 +187,14 @@ above, applied the same way to the wider plan.
       [`docs/retention-flow.md`](docs/retention-flow.md)'s "Guiding
       rule" section for the full rationale.
 - [ ] `servervault status`
-- [ ] `internal/notify` (optional failure notifications)
+- [x] `internal/notify` (optional failure notifications) -- wraps an
+      existing `event.Sink`, notifying only on `event.TypeJobFailed`
+      (not cancellation or interruption); no change to
+      `internal/backup`/`internal/restore`/`internal/retention`, which
+      remain unaware it exists. `WebhookNotifier` is the first-party
+      `Notifier`, exactly matching the interface
+      [`docs/extensibility.md`](docs/extensibility.md) sketched ahead
+      of time. See [`docs/notify.md`](docs/notify.md).
 - [ ] `internal/health` checks wired into `doctor` and `status`
 
 ## v1.0.0 — Go implementation replaces shell as the primary path
