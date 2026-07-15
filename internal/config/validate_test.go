@@ -210,6 +210,22 @@ func TestValidate(t *testing.T) {
 			mutate:    func(c *Config) { c.StateDir = "var/lib/servervault" },
 			wantField: "state_dir",
 		},
+		{
+			name: "notify enabled with no webhook url",
+			mutate: func(c *Config) {
+				c.Notify.Enabled = true
+				c.Notify.WebhookURL = ""
+			},
+			wantField: "notify.webhook_url",
+		},
+		{
+			name: "notify enabled with a non-http webhook url",
+			mutate: func(c *Config) {
+				c.Notify.Enabled = true
+				c.Notify.WebhookURL = "ftp://example.com/hook"
+			},
+			wantField: "notify.webhook_url",
+		},
 	}
 
 	for _, tt := range tests {
@@ -286,6 +302,26 @@ func TestValidate_PostgresDisabledSkipsPostgresChecks(t *testing.T) {
 
 	if errs := Validate(cfg); containsField(errs, "postgres.database") || containsField(errs, "postgres.user") {
 		t.Errorf("Validate() with postgres.enabled=false: want no postgres.* errors, got %v", errs)
+	}
+}
+
+func TestValidate_NotifyEnabledWithValidWebhookURLPasses(t *testing.T) {
+	cfg := validConfig()
+	cfg.Notify.Enabled = true
+	cfg.Notify.WebhookURL = "https://hooks.example.com/servervault"
+
+	if errs := Validate(cfg); containsField(errs, "notify.webhook_url") {
+		t.Errorf("Validate() with a valid https webhook_url: want no notify.* errors, got %v", errs)
+	}
+}
+
+func TestValidate_NotifyDisabledSkipsWebhookURLCheck(t *testing.T) {
+	cfg := validConfig()
+	cfg.Notify.Enabled = false
+	cfg.Notify.WebhookURL = ""
+
+	if errs := Validate(cfg); containsField(errs, "notify.webhook_url") {
+		t.Errorf("Validate() with notify.enabled=false: want no notify.* errors, got %v", errs)
 	}
 }
 

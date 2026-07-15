@@ -91,10 +91,12 @@ retention:
 # if omitted.
 host_tag: ""
 
-# Optional failure notifications. Leave the URL unset to disable.
+# Optional failure notifications: a job.failed event (backup, restore,
+# or prune) posts a small JSON payload to webhook_url. Cancellations
+# and successes never notify. See docs/notify.md.
 notify:
   enabled: false
-  webhook_url: ""
+  webhook_url: "" # must be http:// or https:// when enabled: true
 
 # Local operational state (the job/event SQLite database used by both
 # `servervault backup` and `servervault restore`) -- distinct from

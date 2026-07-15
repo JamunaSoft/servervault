@@ -54,7 +54,25 @@ func Validate(cfg *Config) ValidationErrors {
 	errs = append(errs, validatePostgres(cfg.Postgres)...)
 	errs = append(errs, validateRestore(cfg.Restore, cfg.Postgres, cfg.Backup)...)
 	errs = append(errs, validateStateDir(cfg.StateDir)...)
+	errs = append(errs, validateNotify(cfg.Notify)...)
 
+	return errs
+}
+
+// validateNotify is a no-op when notify.enabled is false: an
+// unconfigured webhook_url is only a problem if something would
+// actually try to use it.
+func validateNotify(n NotifyConfig) ValidationErrors {
+	var errs ValidationErrors
+	if !n.Enabled {
+		return errs
+	}
+	switch {
+	case n.WebhookURL == "":
+		errs = append(errs, ValidationError{"notify.webhook_url", "must not be empty when notify.enabled is true"})
+	case !strings.HasPrefix(n.WebhookURL, "http://") && !strings.HasPrefix(n.WebhookURL, "https://"):
+		errs = append(errs, ValidationError{"notify.webhook_url", "must be an http:// or https:// URL"})
+	}
 	return errs
 }
 
