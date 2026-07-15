@@ -6,9 +6,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/JamunaSoft/servervault/internal/config"
+	"github.com/JamunaSoft/servervault/internal/job"
 	"github.com/JamunaSoft/servervault/internal/lock"
 )
 
@@ -478,4 +481,123 @@ func TestCheckLockState(t *testing.T) {
 			t.Errorf("status = %v, want StatusWarn while held (detail: %s)", check.Status, check.Detail)
 		}
 	})
+}
+
+// fakeJobLister is a health.JobLister test double.
+type fakeJobLister struct {
+	jobs map[job.Type]job.Job
+}
+
+func (f fakeJobLister) LatestByType(_ context.Context, t job.Type) (job.Job, error) {
+	j, ok := f.jobs[t]
+	if !ok {
+		return job.Job{}, job.ErrNotFound
+	}
+	return j, nil
+}
+
+func TestCheckOperationalHealth(t *testing.T) {
+	t.Run("all healthy", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.Backup.LockFile = filepath.Join(t.TempDir(), "backup.lock")
+		cfg.Restore.LockFile = filepath.Join(t.TempDir(), "restore.lock")
+		cfg.Retention.LockFile = filepath.Join(t.TempDir(), "prune.lock")
+
+		check := checkOperationalHealth(context.Background(), Options{
+			Config: cfg,
+			Restic: fakeResticAccessChecker{},
+			Jobs: fakeJobLister{jobs: map[job.Type]job.Job{
+				job.TypeBackup: {Type: job.TypeBackup, State: job.StateCompleted, FinishedAt: time.Now()},
+			}},
+		})
+		if check.Status != StatusOK {
+			t.Errorf("status = %v, want StatusOK (detail: %s)", check.Status, check.Detail)
+		}
+	})
+
+	t.Run("no job history yet is not a failure", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.Backup.LockFile = filepath.Join(t.TempDir(), "backup.lock")
+		cfg.Restore.LockFile = filepath.Join(t.TempDir(), "restore.lock")
+		cfg.Retention.LockFile = filepath.Join(t.TempDir(), "prune.lock")
+
+		check := checkOperationalHealth(context.Background(), Options{
+			Config: cfg,
+			Restic: fakeResticAccessChecker{},
+			Jobs:   fakeJobLister{jobs: map[job.Type]job.Job{}},
+		})
+		if check.Status != StatusOK {
+			t.Errorf("status = %v, want StatusOK -- no job history is StatusUnknown in internal/health, which must not fail doctor (detail: %s)", check.Status, check.Detail)
+		}
+	})
+
+	t.Run("a failed last backup surfaces as FAIL", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.Backup.LockFile = filepath.Join(t.TempDir(), "backup.lock")
+		cfg.Restore.LockFile = filepath.Join(t.TempDir(), "restore.lock")
+		cfg.Retention.LockFile = filepath.Join(t.TempDir(), "prune.lock")
+
+		check := checkOperationalHealth(context.Background(), Options{
+			Config: cfg,
+			Restic: fakeResticAccessChecker{},
+			Jobs: fakeJobLister{jobs: map[job.Type]job.Job{
+				job.TypeBackup: {Type: job.TypeBackup, State: job.StateFailed, FinishedAt: time.Now(), ErrorSummary: "disk full"},
+			}},
+		})
+		if check.Status != StatusFail {
+			t.Errorf("status = %v, want StatusFail", check.Status)
+		}
+		if !strings.Contains(check.Detail, "disk full") {
+			t.Errorf("Detail = %q, want it to mention the failure reason", check.Detail)
+		}
+	})
+
+	t.Run("a held restore lock surfaces as WARN, not a separate FAIL", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.Backup.LockFile = filepath.Join(t.TempDir(), "backup.lock")
+		cfg.Restore.LockFile = filepath.Join(t.TempDir(), "restore.lock")
+		cfg.Retention.LockFile = filepath.Join(t.TempDir(), "prune.lock")
+
+		held, err := lock.Acquire(cfg.Restore.LockFile)
+		if err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		defer held.Release()
+
+		check := checkOperationalHealth(context.Background(), Options{
+			Config: cfg,
+			Restic: fakeResticAccessChecker{},
+			Jobs:   fakeJobLister{jobs: map[job.Type]job.Job{}},
+		})
+		if check.Status != StatusWarn {
+			t.Errorf("status = %v, want StatusWarn", check.Status)
+		}
+	})
+}
+
+// TestRun_OpensJobStoreFromStateDirWhenNil proves Run wires a real
+// job.Store into checkOperationalHealth when Options.Jobs is left nil,
+// the same nil-fallback convention Restic/Postgres already have --
+// exercised via the operational-health check's own detail text rather
+// than a job.Store-specific assertion, since Run doesn't expose the
+// store it opened.
+func TestRun_OpensJobStoreFromStateDirWhenNil(t *testing.T) {
+	cfg := baseConfig()
+	cfg.StateDir = t.TempDir()
+
+	report := Run(context.Background(), Options{
+		Config:   cfg,
+		Restic:   fakeResticAccessChecker{},
+		Postgres: fakePostgresPinger{},
+	})
+
+	for _, c := range report.Checks {
+		if c.Name == "operational health (internal/health)" {
+			if c.Status == StatusFail {
+				t.Errorf("operational health check failed unexpectedly: %s", c.Detail)
+			}
+			return
+		}
+	}
+	t.Error("Run() report missing the operational health check")
 }

@@ -13,8 +13,12 @@ import (
 	"context"
 	"time"
 
+	"path/filepath"
+
 	"github.com/JamunaSoft/servervault/internal/config"
 	"github.com/JamunaSoft/servervault/internal/execx"
+	"github.com/JamunaSoft/servervault/internal/health"
+	"github.com/JamunaSoft/servervault/internal/job"
 	"github.com/JamunaSoft/servervault/internal/postgres"
 	"github.com/JamunaSoft/servervault/internal/restic"
 )
@@ -96,15 +100,20 @@ type PostgresPinger interface {
 	Ping(ctx context.Context) error
 }
 
-// Options configures a doctor run. Commands, FreeBytes, Restic, and
-// Postgres are seams for tests; all default to real implementations built
-// from Config when left nil.
+// Options configures a doctor run. Commands, FreeBytes, Restic,
+// Postgres, and Jobs are seams for tests; all default to real
+// implementations built from Config when left nil. Jobs additionally
+// defaults to nil (rather than a constructed *job.Store) if
+// Config.StateDir can't be opened -- see Run's own comment on why that
+// degrades to internal/health reporting StatusUnknown rather than
+// failing the whole doctor run.
 type Options struct {
 	Config    *config.Config
 	Commands  execx.CommandChecker
 	FreeBytes func(path string) (uint64, error)
 	Restic    ResticAccessChecker
 	Postgres  PostgresPinger
+	Jobs      health.JobLister
 }
 
 // networkCheckTimeout bounds how long the Restic/PostgreSQL reachability
@@ -128,6 +137,23 @@ func Run(ctx context.Context, opts Options) Report {
 	if opts.Postgres == nil && opts.Config.Postgres.Enabled {
 		opts.Postgres = postgres.New(execx.DefaultRunner{}, opts.Config.Postgres)
 	}
+	if opts.Jobs == nil && opts.Config.StateDir != "" {
+		// Best-effort, like Restic/Postgres above: a job store this run
+		// opens itself is closed before Run returns. Opening (not
+		// writing to) the store is read-only from a doctor run's
+		// perspective -- LatestByType never creates a job record -- and
+		// matches this package's existing "construct a real
+		// implementation from Config when the caller didn't inject one"
+		// convention. A failure to open (e.g. an unwritable state_dir)
+		// leaves opts.Jobs nil, which internal/health already handles
+		// by reporting StatusUnknown, not a doctor-run failure -- a
+		// missing job history is not itself an environment problem
+		// doctor exists to catch.
+		if s, err := job.Open(filepath.Join(opts.Config.StateDir, "jobs.db")); err == nil {
+			opts.Jobs = s
+			defer s.Close()
+		}
+	}
 
 	netCtx, cancel := context.WithTimeout(ctx, networkCheckTimeout)
 	defer cancel()
@@ -145,6 +171,7 @@ func Run(ctx context.Context, opts Options) Report {
 			checkResticAccess(netCtx, opts),
 			checkPostgresConnectivity(netCtx, opts),
 			checkLockState(opts),
+			checkOperationalHealth(netCtx, opts),
 
 			// Deferred: no code path exercises these yet.
 			deferredCheck("SSH/SFTP non-interactive access", "requires repository-string parsing (planned when a dedicated SFTP check is scoped)"),

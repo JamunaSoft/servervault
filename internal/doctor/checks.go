@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/JamunaSoft/servervault/internal/config"
+	"github.com/JamunaSoft/servervault/internal/health"
 	"github.com/JamunaSoft/servervault/internal/lock"
 )
 
@@ -282,4 +283,47 @@ func checkLockState(opts Options) Check {
 		return Check{Name: name, Status: StatusWarn, Detail: "a backup is currently running (" + strings.ReplaceAll(strings.TrimSpace(detail), "\n", ", ") + ")"}
 	}
 	return Check{Name: name, Status: StatusOK, Detail: "no backup currently running"}
+}
+
+// checkOperationalHealth folds internal/health.Run's report into a
+// single doctor Check -- ROADMAP.md's v0.5.0 "internal/health checks
+// wired into doctor and status". It deliberately summarizes rather
+// than flattening health's individual checks into this report: doctor
+// already has its own "backup lock state" check above, and health
+// checks the same lock (plus restore's and retention's, which doctor
+// didn't check before this) -- summarizing avoids two differently-named
+// checks disagreeing about the same lock file, while still surfacing
+// everything health finds that doctor didn't already know about (job
+// history, restore/retention lock state) as WARN/FAIL detail text.
+//
+// health.StatusUnknown (e.g. no job has ever run yet, or Options.Jobs
+// is nil) never contributes to the worst status -- a fresh install
+// with no backup history yet is not a doctor-run failure.
+func checkOperationalHealth(ctx context.Context, opts Options) Check {
+	const name = "operational health (internal/health)"
+
+	report := health.Run(ctx, health.Options{
+		Config: opts.Config,
+		Restic: opts.Restic,
+		Jobs:   opts.Jobs,
+	})
+
+	worst := StatusOK
+	var problems []string
+	for _, c := range report.Checks {
+		switch c.Status {
+		case health.StatusFail:
+			worst = StatusFail
+			problems = append(problems, c.Name+": "+c.Detail)
+		case health.StatusWarn:
+			if worst != StatusFail {
+				worst = StatusWarn
+			}
+			problems = append(problems, c.Name+": "+c.Detail)
+		}
+	}
+	if len(problems) == 0 {
+		return Check{Name: name, Status: StatusOK, Detail: "all operational health checks passed"}
+	}
+	return Check{Name: name, Status: worst, Detail: strings.Join(problems, "; ")}
 }
