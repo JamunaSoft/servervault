@@ -26,6 +26,7 @@ func main() {
 	rootCmd.AddCommand(cli.NewSnapshotsCommand())
 	rootCmd.AddCommand(cli.NewRestoreCommand())
 	rootCmd.AddCommand(cli.NewPruneCommand())
+	rootCmd.AddCommand(cli.NewStatusCommand())
 
 	err := rootCmd.ExecuteContext(ctx)
 	os.Exit(cli.ExitCode(err))
