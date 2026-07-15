@@ -71,7 +71,7 @@ func NewBackupCommand() *cobra.Command {
 					log.Warn("backup: failed to open event store; continuing without event tracking", "error", err)
 				} else {
 					defer eventStore.Close()
-					opts = append(opts, backup.WithEventSink(eventStore))
+					opts = append(opts, backup.WithEventSink(wrapEventSinkWithNotify(cfg, eventStore, log)))
 				}
 			}
 

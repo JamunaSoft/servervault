@@ -114,7 +114,7 @@ func NewPruneCommand() *cobra.Command {
 			}
 			defer eventStore.Close()
 
-			executor, err := retention.NewExecutor(repo, cfg, jobStore, eventStore, log)
+			executor, err := retention.NewExecutor(repo, cfg, jobStore, wrapEventSinkWithNotify(cfg, eventStore, log), log)
 			if err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "servervault: prune:", err)
 				return &ExitError{Code: 2}

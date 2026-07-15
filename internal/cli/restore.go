@@ -135,7 +135,7 @@ func NewRestoreCommand() *cobra.Command {
 				pgClient = postgres.New(execx.DefaultRunner{}, cfg.Postgres)
 			}
 
-			executor, err := restore.NewExecutor(repo, pgClient, cfg, jobStore, eventStore, log)
+			executor, err := restore.NewExecutor(repo, pgClient, cfg, jobStore, wrapEventSinkWithNotify(cfg, eventStore, log), log)
 			if err != nil {
 				fmt.Fprintln(cmd.ErrOrStderr(), "servervault: restore:", err)
 				return &ExitError{Code: 2}
