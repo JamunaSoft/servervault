@@ -187,11 +187,29 @@ func TestStore_Advance_NotFound(t *testing.T) {
 func TestStore_Advance_SetsTimestampsAndErrorFields(t *testing.T) {
 	s := openTestStore(t)
 	ctx := context.Background()
-	j, _ := s.Create(ctx, Job{Type: TypeRestore})
+	j, err := s.Create(ctx, Job{Type: TypeRestore})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if j.CreatedAt.IsZero() {
+		t.Error("Create: CreatedAt should not be zero")
+	}
+	if j.UpdatedAt.IsZero() {
+		t.Error("Create: UpdatedAt should not be zero")
+	}
+	if !j.StartedAt.IsZero() {
+		t.Error("Create: StartedAt should still be zero before the job leaves pending")
+	}
 
-	j, err := s.Advance(ctx, j.ID, StatePreparing, AdvanceOptions{})
+	j, err = s.Advance(ctx, j.ID, StatePreparing, AdvanceOptions{})
 	if err != nil {
 		t.Fatalf("Advance to preparing: %v", err)
+	}
+	if j.StartedAt.IsZero() {
+		t.Error("Advance out of pending: StartedAt should now be set")
+	}
+	if !j.FinishedAt.IsZero() {
+		t.Error("Advance to a non-terminal state: FinishedAt should still be zero")
 	}
 
 	j, err = s.Advance(ctx, j.ID, StateFailed, AdvanceOptions{
@@ -209,6 +227,51 @@ func TestStore_Advance_SetsTimestampsAndErrorFields(t *testing.T) {
 	}
 	if !j.State.Terminal() {
 		t.Errorf("state %s should be terminal", j.State)
+	}
+	if j.FinishedAt.IsZero() {
+		t.Error("Advance to a terminal state: FinishedAt should now be set")
+	}
+}
+
+func TestStore_LatestByType(t *testing.T) {
+	s := openTestStore(t)
+	ctx := context.Background()
+
+	if _, err := s.LatestByType(ctx, TypeBackup); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("LatestByType with no jobs: err = %v, want ErrNotFound", err)
+	}
+
+	first, err := s.Create(ctx, Job{Type: TypeBackup})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	time.Sleep(2 * time.Millisecond) // ensure a distinct created_at
+	second, err := s.Create(ctx, Job{Type: TypeBackup})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := s.Create(ctx, Job{Type: TypeRestore}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	got, err := s.LatestByType(ctx, TypeBackup)
+	if err != nil {
+		t.Fatalf("LatestByType: %v", err)
+	}
+	if got.ID != second.ID {
+		t.Errorf("LatestByType(TypeBackup) = %s, want the more recently created job %s (first was %s)", got.ID, second.ID, first.ID)
+	}
+
+	gotRestore, err := s.LatestByType(ctx, TypeRestore)
+	if err != nil {
+		t.Fatalf("LatestByType(TypeRestore): %v", err)
+	}
+	if gotRestore.Type != TypeRestore {
+		t.Errorf("LatestByType(TypeRestore) returned a %s job", gotRestore.Type)
+	}
+
+	if _, err := s.LatestByType(ctx, TypePrune); !errors.Is(err, ErrNotFound) {
+		t.Errorf("LatestByType(TypePrune) with none created: err = %v, want ErrNotFound", err)
 	}
 }
 

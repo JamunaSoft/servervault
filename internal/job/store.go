@@ -167,7 +167,8 @@ func (s *Store) Create(ctx context.Context, j Job) (Job, error) {
 		return Job{}, errors.New("job: create: type must not be empty")
 	}
 
-	now := time.Now().UTC().Format(time.RFC3339Nano)
+	nowTime := time.Now().UTC()
+	now := nowTime.Format(time.RFC3339Nano)
 	_, err := s.db.ExecContext(ctx, `
 INSERT INTO jobs (
 	id, type, state, created_at, updated_at,
@@ -183,6 +184,8 @@ INSERT INTO jobs (
 	if err != nil {
 		return Job{}, fmt.Errorf("job: create %s: %w", j.ID, err)
 	}
+	j.CreatedAt = nowTime
+	j.UpdatedAt = nowTime
 	return j, nil
 }
 
@@ -191,24 +194,97 @@ func (s *Store) Get(ctx context.Context, id string) (Job, error) {
 	row := s.db.QueryRowContext(ctx, `
 SELECT id, type, state, error_category, error_summary,
        snapshot_id, database_name, policy_name, target_path, host_tag,
-       bytes_total, files_new, files_changed, snapshots_removed
+       bytes_total, files_new, files_changed, snapshots_removed,
+       created_at, updated_at, started_at, finished_at
 FROM jobs WHERE id = ?;`, id)
 
-	var j Job
-	var jType, state, errCat string
-	err := row.Scan(&j.ID, &jType, &state, &errCat, &j.ErrorSummary,
-		&j.Metadata.SnapshotID, &j.Metadata.DatabaseName, &j.Metadata.PolicyName, &j.Metadata.TargetPath, &j.Metadata.HostTag,
-		&j.Metadata.BytesTotal, &j.Metadata.FilesNew, &j.Metadata.FilesChanged, &j.Metadata.SnapshotsRemoved,
-	)
+	j, err := scanJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Job{}, ErrNotFound
 	}
 	if err != nil {
 		return Job{}, fmt.Errorf("job: get %s: %w", id, err)
 	}
+	return j, nil
+}
+
+// rowScanner is satisfied by both *sql.Row and *sql.Rows, letting
+// scanJob back both Get (single row) and LatestByType (query returning
+// at most one row) without duplicating the column list or parsing
+// logic in two places.
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+// scanJob scans one row in the exact column order Get and LatestByType
+// both select in. started_at/finished_at are empty strings in SQLite
+// until a job leaves pending/reaches a terminal state (see the jobs
+// table's `NOT NULL DEFAULT ”` columns) -- parseOptionalTime leaves
+// them as the zero time.Time rather than erroring on an empty string.
+func scanJob(row rowScanner) (Job, error) {
+	var j Job
+	var jType, state, errCat, createdAt, updatedAt, startedAt, finishedAt string
+	err := row.Scan(&j.ID, &jType, &state, &errCat, &j.ErrorSummary,
+		&j.Metadata.SnapshotID, &j.Metadata.DatabaseName, &j.Metadata.PolicyName, &j.Metadata.TargetPath, &j.Metadata.HostTag,
+		&j.Metadata.BytesTotal, &j.Metadata.FilesNew, &j.Metadata.FilesChanged, &j.Metadata.SnapshotsRemoved,
+		&createdAt, &updatedAt, &startedAt, &finishedAt,
+	)
+	if err != nil {
+		return Job{}, err
+	}
 	j.Type = Type(jType)
 	j.State = State(state)
 	j.ErrorCategory = ErrorCategory(errCat)
+
+	j.CreatedAt, err = parseRequiredTime(createdAt)
+	if err != nil {
+		return Job{}, fmt.Errorf("parse created_at: %w", err)
+	}
+	j.UpdatedAt, err = parseRequiredTime(updatedAt)
+	if err != nil {
+		return Job{}, fmt.Errorf("parse updated_at: %w", err)
+	}
+	j.StartedAt, err = parseOptionalTime(startedAt)
+	if err != nil {
+		return Job{}, fmt.Errorf("parse started_at: %w", err)
+	}
+	j.FinishedAt, err = parseOptionalTime(finishedAt)
+	if err != nil {
+		return Job{}, fmt.Errorf("parse finished_at: %w", err)
+	}
+	return j, nil
+}
+
+func parseRequiredTime(s string) (time.Time, error) {
+	return time.Parse(time.RFC3339Nano, s)
+}
+
+func parseOptionalTime(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	return time.Parse(time.RFC3339Nano, s)
+}
+
+// LatestByType returns the most recently created job of type t, or
+// ErrNotFound if none exists. Used by internal/health and `servervault
+// status` to answer "when did the last backup/restore/prune run, and
+// how did it go" without either package needing its own SQL.
+func (s *Store) LatestByType(ctx context.Context, t Type) (Job, error) {
+	row := s.db.QueryRowContext(ctx, `
+SELECT id, type, state, error_category, error_summary,
+       snapshot_id, database_name, policy_name, target_path, host_tag,
+       bytes_total, files_new, files_changed, snapshots_removed,
+       created_at, updated_at, started_at, finished_at
+FROM jobs WHERE type = ? ORDER BY created_at DESC LIMIT 1;`, string(t))
+
+	j, err := scanJob(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Job{}, ErrNotFound
+	}
+	if err != nil {
+		return Job{}, fmt.Errorf("job: latest by type %s: %w", t, err)
+	}
 	return j, nil
 }
 

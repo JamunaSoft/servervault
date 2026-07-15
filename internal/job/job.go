@@ -14,6 +14,7 @@ package job
 
 import (
 	"fmt"
+	"time"
 )
 
 // State is one point in a job's lifecycle.
@@ -168,6 +169,16 @@ type Job struct {
 	State         State
 	Metadata      Metadata
 	ErrorCategory ErrorCategory
+	// CreatedAt is set by Create and never changes afterward.
+	CreatedAt time.Time
+	// UpdatedAt is set by Create and refreshed on every Advance call.
+	UpdatedAt time.Time
+	// StartedAt is set the first time a job leaves StatePending (i.e. on
+	// the Advance call that moves it out of pending) -- zero until then.
+	StartedAt time.Time
+	// FinishedAt is set the Advance call that moves a job into a
+	// terminal state -- zero until then.
+	FinishedAt time.Time
 	// ErrorSummary is a short, operator-facing description of a failure --
 	// callers must not put secrets, full stderr, or credential-bearing
 	// text here; it is persisted and later surfaced in status output and
